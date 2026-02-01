@@ -1,0 +1,5 @@
+<library path="rmcs_dart_guidance">
+  <class type="rmcs_dartguide::DartTest" base_class_type="rmcs_executor::Component">
+    <description>Communication Test.</description>
+  </class>
+</library>
