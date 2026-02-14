@@ -1,5 +1,6 @@
 #include "identifier.hpp"
 #include "tracker.hpp"
+#include "angle_solver.hpp"
 #include <chrono>
 #include <hikcamera/image_capturer.hpp>
 #include <memory>
@@ -10,6 +11,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
+#include <Eigen/Dense>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
@@ -34,25 +36,37 @@ public:
         camera_profile_.exposure_time = std::chrono::microseconds(get_parameter("exposure_time").as_int());
         camera_profile_.gain          = static_cast<float>(get_parameter("gain").as_double());
 
-        lower_limit_default_ = cv::Scalar(
-            get_parameter("L_H").as_double(), get_parameter("L_S").as_double(), get_parameter("L_V").as_double());
-        upper_limit_default_ = cv::Scalar(
-            get_parameter("U_H").as_double(), get_parameter("U_S").as_double(), get_parameter("U_V").as_double());
+        lower_limit_default_ = cv::Scalar(get_parameter("L_H").as_double(), get_parameter("L_S").as_double(), get_parameter("L_V").as_double());
+        upper_limit_default_ = cv::Scalar(get_parameter("U_H").as_double(), get_parameter("U_S").as_double(), get_parameter("U_V").as_double());
 
         enable_image_saving_ = has_parameter("enable_image_saving") ? 
             get_parameter("enable_image_saving").as_bool() : false;
-            
         save_directory_ = has_parameter("image_save_directory") ? 
             get_parameter("image_save_directory").as_string() : "./saved_images";
-            
         save_interval_ms_ = has_parameter("image_save_interval_ms") ? 
             static_cast<int>(get_parameter("image_save_interval_ms").as_int()) : 1000;
-            
         save_raw_image_ = has_parameter("save_raw_image") ? 
             get_parameter("save_raw_image").as_bool() : true;
-            
         save_processed_image_ = has_parameter("save_processed_image") ? 
             get_parameter("save_processed_image").as_bool() : false;
+
+        double fx_ = get_parameter_or("camera_focal_length_x", 4242.6083);
+        double fy_ = get_parameter_or("camera_focal_length_y", 4227.9942);
+        double cx_ = get_parameter_or("camera_principal_point_x", 632.9298);
+        double cy_ = get_parameter_or("camera_principal_point_y", 556.6188);
+
+        double target_diameter_ = get_parameter_or("target_diameter", 0.1);
+        double target_area_ = CV_PI * std::pow(target_diameter_ / 2.0, 2);
+
+        std::vector<double> R_vec = get_parameter_or("cam2launcher_R", 
+            std::vector<double>{1,0,0,0,1,0,0,0,1});
+        std::vector<double> T_vec = get_parameter_or("cam2launcher_T", 
+            std::vector<double>{0,0,0});
+        Eigen::Matrix3d R = Eigen::Map<Eigen::Matrix<double,3,3,Eigen::RowMajor>>(R_vec.data());
+        Eigen::Vector3d t = Eigen::Map<Eigen::Vector3d>(T_vec.data());
+        angle_solver_.set_default(fx_, fy_, cx_, cy_, target_area_);
+        angle_solver_.set_extrinsic(R, t);
+        angle_solver_.set_cached_target_area(0.0);
 
         image_capture_ = std::make_unique<hikcamera::ImageCapturer>(camera_profile_);
         
@@ -76,7 +90,7 @@ public:
         register_output("/dart_guidance/camera/display_image", display_image_);
         register_output("/dart_guidance/camera/target_position", target_position_, PointT(-1, -1));
         register_output("/dart_guidance/tracker/tracking", tracking_);
-        
+        register_output("/dart_guidance/angle/error", angle_error_);
         if (enable_image_saving_) {
             RCLCPP_INFO(logger_, "Image saving enabled:");
             RCLCPP_INFO(logger_, "  Directory: %s", save_directory_.c_str());
@@ -139,13 +153,11 @@ private:
                 
                 cv::Mat preprocessed_image;
                 image_to_binary(raw_image, preprocessed_image);
-                
+
                 cv::Mat display_image = preprocessed_image.clone();
-                
                 process_frame(preprocessed_image, display_image);
                 
                 cv::line(display_image, cv::Point(0, 645), cv::Point(720, 645), cv::Scalar(255, 0, 255), 1);
-                
                 *display_image_ = display_image;
                 
                 if (enable_image_saving_ && save_processed_image_ && elapsed_ms >= save_interval_ms_) {
@@ -235,15 +247,19 @@ private:
             if (!identifier_.result_status_()) {
                 *target_position_ = PointT(-1, -1);
                 *tracking_ = false;
+                *angle_error_ = Eigen::Vector2d::Zero();
             } else {
                 cv::Point2i initial_position = identifier_.get_result();
                 RCLCPP_INFO(logger_, "Target initial position:(%d,%d)", initial_position.x, initial_position.y);
 
+                double init_area = identifier_.get_target_area();
+                angle_solver_.set_cached_target_area(init_area);
                 is_tracker_stage_ = true;
                 tracker_.Init(initial_position);
                 
                 *target_position_ = initial_position;
                 *tracking_ = true;
+                *angle_error_ = angle_solver_.update(initial_position, true);
             }
         } else {
             tracker_.update(preprocessed_image);
@@ -258,10 +274,12 @@ private:
                 tracker_loss_count_++;
                 *target_position_ = PointT(-1, -1);
                 *tracking_ = false;
+                *angle_error_ = Eigen::Vector2d::Zero();
 
                 if (tracker_loss_count_ > 100) {
                     is_tracker_stage_ = false;
                     identifier_.Init();
+                    angle_solver_.set_cached_target_area(0.0);
                     tracker_loss_count_ = 0;
                     RCLCPP_INFO(logger_, "Target lost, switching to identification mode");
                 }
@@ -269,6 +287,7 @@ private:
                 tracker_loss_count_ = 0;
                 *target_position_ = current_position;
                 *tracking_ = true;
+                *angle_error_ = angle_solver_.update(current_position, true);
                 cv::circle(display_image, current_position, 20, cv::Scalar(255, 0, 255), 2);
             }
         }
@@ -290,7 +309,7 @@ private:
     rclcpp::Logger logger_;
     
     bool enable_image_saving_ = false;
-    std::string save_directory_ = "./saved_images";     // 当前工作目录下的saved_images文件夹，若不存在，自动创建
+    std::string save_directory_ = "./saved_images";
     int save_interval_ms_ = 1000;
     bool save_raw_image_ = true;
     bool save_processed_image_ = false;
@@ -308,9 +327,11 @@ private:
     OutputInterface<cv::Mat> display_image_;
     OutputInterface<bool> tracking_;
     OutputInterface<cv::Point2i> target_position_;
+    OutputInterface<Eigen::Vector2d> angle_error_;
 
     DartGuidanceIdentifier identifier_;
     DartGuidanceTracker tracker_;
+    DartGuidanceAngleSolver angle_solver_;
     bool is_tracker_stage_ = false;
     int tracker_loss_count_ = 0;
 };
