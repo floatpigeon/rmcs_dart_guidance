@@ -7,15 +7,16 @@
 
 namespace rmcs_dart_guidance::manager {
 
-class TriggerLockAction : public IAction {
+class TriggerControlAction : public IAction {
 public:
-    TriggerLockAction(double& trigger_target_angle, double lock_angle, uint64_t settle_ticks = 50)
+    TriggerControlAction(
+        double& trigger_target_angle, double lock_angle, uint64_t settle_ticks = 50)
         : IAction("trigger_lock")
         , trigger_target_angle_(trigger_target_angle)
-        , lock_angle_(lock_angle)
+        , set_angle_(lock_angle)
         , settle_ticks_(settle_ticks) {}
 
-    void on_enter() override { trigger_target_angle_ = lock_angle_; }
+    void on_enter() override { trigger_target_angle_ = set_angle_; }
 
     ActionStatus update() override {
         if (elapsed_ticks() >= settle_ticks_) {
@@ -31,7 +32,7 @@ public:
 
 private:
     double& trigger_target_angle_;
-    double lock_angle_;
+    double set_angle_;
     uint64_t settle_ticks_;
 };
 

@@ -1,5 +1,6 @@
 #include "manager/action/action.hpp"
 #include "manager/task/cancel_launch_task.hpp"
+#include "manager/task/fire_task.hpp"
 #include "manager/task/launch_preparation_task.hpp"
 #include "manager/task/task.hpp"
 
@@ -243,7 +244,9 @@ private:
                 *belt_target_velocity_, *left_belt_velocity_, *right_belt_velocity_,
                 *trigger_target_angle_);
         }
-        // if (cmd == "fire")   return std::make_shared<FireTask>(...);
+        if (cmd == "fire") {
+            return std::make_shared<FireTask>(*trigger_target_angle_);
+        }
         return nullptr;
     }
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "manager/action/belt_move_action.hpp"
-#include "manager/action/trigger_lock_action.hpp"
+#include "manager/action/trigger_control_action.hpp"
 #include "manager/task/task.hpp"
 
 #include <memory>
@@ -29,7 +29,7 @@ public:
                 ));
 
         then(
-            std::make_shared<TriggerLockAction>(
+            std::make_shared<TriggerControlAction>(
                 trigger_target_angle, // 扳机目标角度（输出）
                 1.57,                 // 锁定角度（弧度）
                 50                    // 舵机到位等待帧数
