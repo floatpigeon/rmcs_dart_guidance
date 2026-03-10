@@ -16,6 +16,8 @@ find_package(type_description_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rosidl_typesupport_cpp REQUIRED)
 
 find_package(rmcs_executor REQUIRED)
 find_package(rmcs_description REQUIRED)
@@ -30,6 +32,7 @@ include_directories(
   ${rmcs_executor_INCLUDE_DIRS}
   ${rmcs_description_INCLUDE_DIRS}
   ${fast_tf_INCLUDE_DIRS}
+  ${std_msgs_INCLUDE_DIRS}
 )
 
 file(GLOB_RECURSE PROJECT_SOURCE
@@ -43,6 +46,12 @@ file(GLOB_RECURSE PROJECT_SOURCE
 add_library(
   ${PROJECT_NAME} SHARED
   ${PROJECT_SOURCE}
+)
+
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  std_msgs
+  rosidl_typesupport_cpp
 )
 
 target_link_libraries(
