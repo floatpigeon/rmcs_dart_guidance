@@ -2,6 +2,7 @@
 
 #include "action.hpp"
 
+#include <cassert>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,7 +34,10 @@ public:
 
     // 追加动作（Builder 风格）
     ActionSet& also(std::shared_ptr<IAction> action) {
-        entries_.push_back({std::move(action), false, ActionStatus::RUNNING});
+        assert(action && "ActionSet::also: action cannot be null");
+        if (action) {
+            entries_.push_back({std::move(action), false, ActionStatus::RUNNING});
+        }
         return *this;
     }
 
@@ -41,6 +45,9 @@ public:
         for (auto& e : entries_) {
             e.done = false;
             e.status = ActionStatus::RUNNING;
+            if (!e.action) {
+                e.done = true; // Skip null actions
+            }
         }
         first_tick_ = true;
     }
@@ -54,7 +61,7 @@ public:
         int failure_count = 0;
 
         for (auto& e : entries_) {
-            if (e.done)
+            if (e.done || !e.action)
                 continue;
 
             ActionStatus s = first_tick_ ? e.action->tick_first() : e.action->tick();
@@ -101,7 +108,7 @@ private:
 
     void cancel_running() {
         for (auto& e : entries_) {
-            if (!e.done) {
+            if (!e.done && e.action) {
                 e.action->cancel();
                 e.done = true;
             }

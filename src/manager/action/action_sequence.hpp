@@ -2,6 +2,7 @@
 
 #include "action.hpp"
 
+#include <cassert>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,7 +25,10 @@ public:
         : IAction(std::move(name)) {}
 
     ActionSequence& then(std::shared_ptr<IAction> action) {
-        actions_.push_back(std::move(action));
+        assert(action && "ActionSequence::then: action cannot be null");
+        if (action) {
+            actions_.push_back(std::move(action));
+        }
         return *this;
     }
 
@@ -42,7 +46,14 @@ public:
         if (cursor_ >= actions_.size())
             return ActionStatus::SUCCESS;
 
-        auto& current = *actions_[cursor_];
+        auto& action_ptr = actions_[cursor_];
+        if (!action_ptr) {
+            // Defensive check: if somehow a null action got in, skip it
+            ++cursor_;
+            first_tick_of_current_ = true;
+            return ActionStatus::RUNNING;
+        }
+        auto& current = *action_ptr;
 
         // 首帧调用 tick_first，后续调用 tick
         ActionStatus status = first_tick_of_current_ ? current.tick_first() : current.tick();
@@ -70,7 +81,10 @@ public:
     void on_exit() override {
         // 如果被外部取消时仍有动作在跑，清理它
         if (cursor_ < actions_.size()) {
-            actions_[cursor_]->cancel();
+            auto& action_ptr = actions_[cursor_];
+            if (action_ptr) {
+                action_ptr->cancel();
+            }
         }
     }
 
