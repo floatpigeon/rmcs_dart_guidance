@@ -50,14 +50,14 @@ public:
         register_output("/dart/manager/trigger/target_angle", trigger_target_angle_, 0.0);
 
         web_cmd_sub_ = create_subscription<std_msgs::msg::String>(
-            "/dart/manager/command", 10, [this](const std_msgs::msg::String::ConstSharedPtr msg) {
+            "/dart/manager/command", 10, [this](const std_msgs::msg::String::ConstSharedPtr& msg) {
                 std::lock_guard<std::mutex> lock(web_command_mutex_);
                 web_command_ = msg->data;
             });
 
         web_heartbeat_sub_ = create_subscription<std_msgs::msg::Empty>(
             "/dart/manager/web_heartbeat", rclcpp::QoS(1).best_effort(),
-            [this](const std_msgs::msg::Empty::ConstSharedPtr /*msg*/) {
+            [this](const std_msgs::msg::Empty::ConstSharedPtr&) {
                 std::lock_guard<std::mutex> lock(web_command_mutex_);
                 last_heartbeat_time_ = this->now();
             });

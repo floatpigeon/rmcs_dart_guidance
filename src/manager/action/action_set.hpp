@@ -37,8 +37,6 @@ public:
         return *this;
     }
 
-    // ── IAction override ──────────────────────────────────────────────────────
-
     void on_enter() override {
         for (auto& e : entries_) {
             e.done = false;
@@ -76,8 +74,6 @@ public:
             }
         }
         first_tick_ = false;
-
-        // ── 策略判断 ─────────────────────────────────────────────────────────
 
         if (policy_ == Policy::ALL_SUCCESS) {
             if (failure_count > 0) {

@@ -23,24 +23,19 @@ public:
     explicit ActionSequence(std::string name)
         : IAction(std::move(name)) {}
 
-    // 追加动作（Builder 风格，支持链式调用）
     ActionSequence& then(std::shared_ptr<IAction> action) {
         actions_.push_back(std::move(action));
         return *this;
     }
 
-    // ── IAction override ──────────────────────────────────────────────────────
-
     void on_enter() override {
         cursor_ = 0;
         if (!actions_.empty()) {
-            // 第一个动作立刻进入
             first_tick_of_current_ = true;
         }
     }
 
     ActionStatus update() override {
-        // 空序列视为立即成功
         if (actions_.empty())
             return ActionStatus::SUCCESS;
 
@@ -79,10 +74,8 @@ public:
         }
     }
 
-    // 查询子动作数量
     std::size_t size() const { return actions_.size(); }
 
-    // 查询当前执行到第几个动作（0-based）
     std::size_t cursor() const { return cursor_; }
 
 private:
