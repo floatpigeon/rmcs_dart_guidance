@@ -71,11 +71,19 @@ public:
                 e.done = true;
                 e.status = ActionStatus::SUCCESS;
                 ++success_count;
+                if (policy_ == Policy::ANY_SUCCESS && success_count > 0) {
+                    cancel_running();
+                    return ActionStatus::SUCCESS;
+                }
             } else if (s == ActionStatus::FAILURE) {
                 e.action->cancel();
                 e.done = true;
                 e.status = ActionStatus::FAILURE;
                 ++failure_count;
+                if (policy_ == Policy::ALL_SUCCESS && failure_count > 0) {
+                    cancel_running();
+                    return ActionStatus::FAILURE;
+                }
             } else {
                 ++running_count;
             }
@@ -83,16 +91,8 @@ public:
         first_tick_ = false;
 
         if (policy_ == Policy::ALL_SUCCESS) {
-            if (failure_count > 0) {
-                cancel_running();
-                return ActionStatus::FAILURE;
-            }
             return (running_count == 0) ? ActionStatus::SUCCESS : ActionStatus::RUNNING;
         } else { // ANY_SUCCESS
-            if (success_count > 0) {
-                cancel_running();
-                return ActionStatus::SUCCESS;
-            }
             return (running_count == 0) ? ActionStatus::FAILURE : ActionStatus::RUNNING;
         }
     }
