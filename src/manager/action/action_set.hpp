@@ -36,7 +36,7 @@ public:
     ActionSet& also(std::shared_ptr<IAction> action) {
         assert(action && "ActionSet::also: action cannot be null");
         if (action) {
-            entries_.push_back({std::move(action), false, ActionStatus::RUNNING});
+            entries_.push_back({std::move(action), false, ActionStatus::RUNNING, false});
         }
         return *this;
     }
@@ -44,7 +44,7 @@ public:
     void on_enter() override {
         for (auto& e : entries_) {
             e.done = false;
-            e.status = ActionStatus::RUNNING;
+            e.started = false;
             if (!e.action) {
                 e.done = true; // Skip null actions
             }
@@ -53,16 +53,23 @@ public:
     }
 
     ActionStatus update() override {
-        if (entries_.empty())
-            return ActionStatus::SUCCESS;
+        if (entries_.empty()) {
+            return policy_ == Policy::ALL_SUCCESS ? ActionStatus::SUCCESS : ActionStatus::FAILURE;
+        }
 
         int running_count = 0;
         int success_count = 0;
+
         int failure_count = 0;
 
         for (auto& e : entries_) {
             if (e.done || !e.action)
                 continue;
+
+            if (first_tick_) {
+                e.started = true;
+                e.status = ActionStatus::RUNNING;
+            }
 
             ActionStatus s = first_tick_ ? e.action->tick_first() : e.action->tick();
 
@@ -92,7 +99,7 @@ public:
 
         if (policy_ == Policy::ALL_SUCCESS) {
             return (running_count == 0) ? ActionStatus::SUCCESS : ActionStatus::RUNNING;
-        } else { // ANY_SUCCESS
+        } else {               // ANY_SUCCESS
             return (running_count == 0) ? ActionStatus::FAILURE : ActionStatus::RUNNING;
         }
     }
@@ -104,11 +111,12 @@ private:
         std::shared_ptr<IAction> action;
         bool done;
         ActionStatus status;
+        bool started;
     };
 
     void cancel_running() {
         for (auto& e : entries_) {
-            if (!e.done && e.action) {
+            if (e.started && !e.done && e.action) {
                 e.action->cancel();
                 e.done = true;
             }
