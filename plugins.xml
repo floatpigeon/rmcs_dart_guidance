@@ -2,4 +2,10 @@
   <class type="rmcs_dart_guidance::manager::DartManager" base_class_type="rmcs_executor::Component">
     <description>Dart task manager: schedules Actions and Tasks, manages state machine and error recovery.</description>
   </class>
+  <class type="rmcs_dart_guidance::manager::RemoteCommandBridge" base_class_type="rmcs_executor::Component">
+    <description>Translates DR16 remote controller signals into DartManager commands and setting adjustments.</description>
+  </class>
+  <class type="rmcs_dart_guidance::manager::debug::FeedbackData" base_class_type="rmcs_executor::Component">
+    <description>Test Plugin</description>
+  </class>
 </library>

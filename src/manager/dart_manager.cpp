@@ -1,16 +1,23 @@
 #include "manager/action/action.hpp"
+#include "manager/task/cancel_launch_task.hpp"
 #include "manager/task/launch_preparation_task.hpp"
 #include "manager/task/task.hpp"
 
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <mutex>
+#include <rcl/publisher.h>
 #include <string>
 
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
+#include <rclcpp/time.hpp>
 #include <rmcs_executor/component.hpp>
+#include <std_msgs/msg/empty.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -28,25 +35,40 @@ public:
         : Node(
               get_component_name(),
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true))
-        , logger_(get_logger()) {
+        , logger_(get_logger())
+        , last_heartbeat_time_(this->now() - rclcpp::Duration::from_seconds(10.0)) {
 
         register_input("/dart/drive_belt/left/velocity", left_belt_velocity_);
         register_input("/dart/drive_belt/right/velocity", right_belt_velocity_);
         register_input("/dart/force_screw/velocity", force_screw_velocity_);
+
+        register_input("/dart/manager/command", command_input_, false);
 
         register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
         register_output(
             "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
         register_output("/dart/manager/trigger/target_angle", trigger_target_angle_, 0.0);
 
-        register_output("/dart/manager/state", state_output_, static_cast<uint8_t>(State::IDLE));
+        web_cmd_sub_ = create_subscription<std_msgs::msg::String>(
+            "/dart/manager/command", 10, [this](const std_msgs::msg::String::ConstSharedPtr msg) {
+                std::lock_guard<std::mutex> lock(web_command_mutex_);
+                web_command_ = msg->data;
+            });
 
-        register_input("/dart/manager/command", command_input_, false);
+        web_heartbeat_sub_ = create_subscription<std_msgs::msg::Empty>(
+            "/dart/manager/web_heartbeat", rclcpp::QoS(1).best_effort(),
+            [this](const std_msgs::msg::Empty::ConstSharedPtr /*msg*/) {
+                std::lock_guard<std::mutex> lock(web_command_mutex_);
+                last_heartbeat_time_ = this->now();
+            });
+
+        state_pub_ = create_publisher<std_msgs::msg::UInt8>("/dart/manager/state", 10);
 
         RCLCPP_INFO(logger_, "[DartManager] initialized, state=IDLE");
     }
 
     void update() override {
+        check_web_connection();
         poll_command();
 
         switch (state_) {
@@ -57,12 +79,37 @@ public:
     }
 
 private:
+    void check_web_connection() {
+        std::lock_guard<std::mutex> lock(web_command_mutex_);
+        if ((this->now() - last_heartbeat_time_).seconds() > 1.5) {
+            if (web_command_enable_) {
+                RCLCPP_WARN(logger_, "[DartManager] WebUI heartbeat timeout. Control revoked.");
+                web_command_enable_ = false;
+                web_command_.clear(); // 断开连接时清空遗留指令
+            }
+        } else {
+            if (!web_command_enable_) {
+                RCLCPP_INFO(logger_, "[DartManager] WebUI heartbeat restored. Control granted.");
+                web_command_enable_ = true;
+            }
+        }
+    }
+
     // 命令轮询
     void poll_command() {
-        if (!command_input_.ready())
-            return;
+        std::string cmd;
 
-        const std::string& cmd = *command_input_;
+        {
+            std::lock_guard<std::mutex> lock(web_command_mutex_);
+            if (web_command_enable_ && !web_command_.empty()) {
+                cmd = web_command_;
+                web_command_.clear();
+            }
+        }
+
+        if (cmd.empty() && command_input_.ready()) {
+            cmd = *command_input_;
+        }
 
         if (cmd.empty()) {
             last_command_.clear();
@@ -174,8 +221,13 @@ private:
     // 状态转换
     void transition_to(State new_state) {
         state_ = new_state;
-        *state_output_ = static_cast<uint8_t>(new_state); // 同步到 Interface
         first_tick_of_task_ = true;
+
+        if (state_pub_) {
+            std_msgs::msg::UInt8 msg;
+            msg.data = static_cast<uint8_t>(new_state);
+            state_pub_->publish(msg);
+        }
     }
 
     // 任务工厂
@@ -183,6 +235,11 @@ private:
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
             return std::make_shared<LaunchPreparationTask>(
+                *belt_target_velocity_, *left_belt_velocity_, *right_belt_velocity_,
+                *trigger_target_angle_);
+        }
+        if (cmd == "unload" || cmd == "cancel_launch") {
+            return std::make_shared<CancelLaunchTask>(
                 *belt_target_velocity_, *left_belt_velocity_, *right_belt_velocity_,
                 *trigger_target_angle_);
         }
@@ -200,16 +257,23 @@ private:
     OutputInterface<double> force_screw_target_velocity_;
     OutputInterface<double> trigger_target_angle_;
 
-    OutputInterface<uint8_t> state_output_;
-
     InputInterface<std::string> command_input_;
     std::string last_command_;
+
+    bool web_command_enable_ = false;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr web_cmd_sub_;
+    rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr web_heartbeat_sub_;
+    std::string web_command_;
+    std::mutex web_command_mutex_;
+    rclcpp::Time last_heartbeat_time_;
+
+    rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr state_pub_;
 
     State state_{State::IDLE};
 
     std::shared_ptr<Task> current_task_;
     std::deque<std::shared_ptr<Task>> task_queue_;
-    bool first_tick_of_task_{true};
+    bool first_tick_of_task_ = true;
 };
 
 } // namespace rmcs_dart_guidance::manager
