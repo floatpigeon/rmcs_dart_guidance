@@ -22,6 +22,8 @@ find_package(OpenCV 4.5 REQUIRED)
 find_package(OpenVINO REQUIRED)
 find_package(Ceres REQUIRED)
 
+find_package(rosidl_typesupport_cpp REQUIRED)
+
 find_package(rmcs_executor REQUIRED)
 find_package(rmcs_description REQUIRED)
 find_package(fast_tf REQUIRED)
@@ -39,6 +41,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${OpenVINO_INCLUDE_DIRS}
   ${Ceres_INCLUDE_DIRS}
+  ${std_msgs_INCLUDE_DIRS}
 )
 
 file(GLOB_RECURSE PROJECT_SOURCE
@@ -61,6 +64,7 @@ ament_target_dependencies(${PROJECT_NAME}
   cv_bridge
   geometry_msgs
   visualization_msgs
+  rosidl_typesupport_cpp
 )
 
 target_link_libraries(
