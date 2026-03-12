@@ -6,9 +6,8 @@
 #include <opencv2/opencv.hpp>
 #include <chrono>
 #include <mutex>
-#include <thread>
-#include <atomic>
 #include <string>
+#include <std_srvs/srv/trigger.hpp>
 
 namespace rmcs_dart_guidance {
 
@@ -31,20 +30,10 @@ public:
         save_on_error_ = get_parameter("save_on_error").as_bool();
         save_directory_ = get_parameter("save_directory").as_string();
 
-        const char* display_env = std::getenv("DISPLAY");
-        if (!display_env || std::string(display_env).empty()) {
-            RCLCPP_WARN(logger_, "DISPLAY environment variable not set. Display windows disabled.");
-            display_available_ = false;
-        } else {
-            display_available_ = true;
-        }
-
-        RCLCPP_INFO(logger_, "DebugDisplayComponent constructed");
+        RCLCPP_INFO(logger_, "DebugDisplayComponent constructed (Headless Mode)");
     }
 
-    ~DebugDisplayComponent() {
-        stop_display();
-    }
+    ~DebugDisplayComponent() {}
 
     void update() override {
         if (!initialized_) {
@@ -63,6 +52,8 @@ private:
                 [this](const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
                     raw_image_callback(msg);
                 });
+            raw_debug_pub_ = this->create_publisher<sensor_msgs::msg::Image>(
+                raw_image_topic_ + "/debug", 10);
             RCLCPP_INFO(logger_, "Subscribed to raw image topic: %s", raw_image_topic_.c_str());
         }
         
@@ -72,42 +63,46 @@ private:
                 [this](const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
                     processed_image_callback(msg);
                 });
-            RCLCPP_INFO(logger_, "Subscribed to processed image topic: %s", processed_image_topic_.c_str());
             
             target_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
                 target_topic_, 10,
                 [this](const geometry_msgs::msg::PointStamped::ConstSharedPtr& msg) {
                     target_callback(msg);
                 });
+            
+            processed_debug_pub_ = this->create_publisher<sensor_msgs::msg::Image>(
+                processed_image_topic_ + "/debug", 10);
+            RCLCPP_INFO(logger_, "Subscribed to processed image topic: %s", processed_image_topic_.c_str());
             RCLCPP_INFO(logger_, "Subscribed to target topic: %s", target_topic_.c_str());
         }
         
-        if (display_available_) {
-            display_running_ = true;
-            display_thread_ = std::thread(&DebugDisplayComponent::display_loop, this);
-            RCLCPP_INFO(logger_, "Display thread started");
-        }
-    }
-    
-    void stop_display() {
-        display_running_ = false;
-        if (display_thread_.joinable()) {
-            display_thread_.join();
-            RCLCPP_INFO(logger_, "Display thread stopped");
-        }
-        
-        if (display_raw_) {
-            cv::destroyWindow("Raw Image");
-        }
-        if (display_processed_) {
-            cv::destroyWindow("Processed Image");
-        }
+        save_srv_ = this->create_service<std_srvs::srv::Trigger>(
+            "~/save_current_frame",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                (void)request;
+                if (save_current_frame()) {
+                    response->success = true;
+                    response->message = "Frame saved successfully";
+                } else {
+                    response->success = false;
+                    response->message = "Failed to save frame (buffer empty)";
+                }
+            });
+
+        int frame_delay_ms = 1000 / std::max(1, max_fps_);
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(frame_delay_ms),
+            std::bind(&DebugDisplayComponent::timer_callback, this));
+            
+        RCLCPP_INFO(logger_, "Publishing timer started with delay %d ms", frame_delay_ms);
     }
 
     void raw_image_callback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
         std::lock_guard<std::mutex> lock(raw_mutex_);
         try {
             raw_image_ = cv_bridge::toCvCopy(msg, "bgr8")->image;
+            raw_image_header_ = msg->header;
             raw_image_timestamp_ = std::chrono::steady_clock::now();
         } catch (const cv_bridge::Exception& e) {
             RCLCPP_ERROR(logger_, "cv_bridge exception for raw image: %s", e.what());
@@ -118,6 +113,7 @@ private:
         std::lock_guard<std::mutex> lock(processed_mutex_);
         try {
             processed_image_ = cv_bridge::toCvCopy(msg, "mono8")->image;
+            processed_image_header_ = msg->header;
             processed_image_timestamp_ = std::chrono::steady_clock::now();
         } catch (const cv_bridge::Exception& e) {
             RCLCPP_ERROR(logger_, "cv_bridge exception for processed image: %s", e.what());
@@ -132,117 +128,81 @@ private:
         last_target_time_ = std::chrono::steady_clock::now();
     }
 
-    void display_loop() {
+    void timer_callback() {
         if (display_raw_) {
-            cv::namedWindow("Raw Image", cv::WINDOW_NORMAL);
-            cv::resizeWindow("Raw Image", 
-                static_cast<int>(640 * window_scale_), 
-                static_cast<int>(480 * window_scale_));
-        }
-        
-        if (display_processed_) {
-            cv::namedWindow("Processed Image", cv::WINDOW_NORMAL);
-            cv::resizeWindow("Processed Image",
-                static_cast<int>(640 * window_scale_),
-                static_cast<int>(480 * window_scale_));
-        }
-
-        const int frame_delay_ms = 1000 / std::max(1, max_fps_);
-        int frame_counter = 0;
-        auto last_fps_time = std::chrono::steady_clock::now();
-        
-        RCLCPP_INFO(logger_, "Display loop started with delay %d ms", frame_delay_ms);
-        
-        while (display_running_ && rclcpp::ok()) {
-            try {
-                if (display_raw_) {
-                    cv::Mat display_raw;
-                    {
-                        std::lock_guard<std::mutex> lock(raw_mutex_);
-                        if (!raw_image_.empty()) {
-                            display_raw = raw_image_.clone();
-                            
-                            auto now = std::chrono::steady_clock::now();
-                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                now - raw_image_timestamp_).count();
-                            
-                            if (elapsed > 500) {
-                                cv::putText(display_raw, "STALE", cv::Point(10, 30),
-                                          cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
-                            }
-                        }
-                    }
+            cv::Mat display_raw;
+            std_msgs::msg::Header header;
+            {
+                std::lock_guard<std::mutex> lock(raw_mutex_);
+                if (!raw_image_.empty()) {
+                    display_raw = raw_image_.clone();
+                    header = raw_image_header_;
                     
-                    if (!display_raw.empty()) {
-                        cv::imshow("Raw Image", display_raw);
-                    }
-                }
-                
-                if (display_processed_) {
-                    cv::Mat display_processed;
-                    {
-                        std::lock_guard<std::mutex> lock(processed_mutex_);
-                        if (!processed_image_.empty()) {
-                            display_processed = processed_image_.clone();
-                            
-                            if (display_processed.channels() == 1) {
-                                cv::cvtColor(display_processed, display_processed, cv::COLOR_GRAY2BGR);
-                            }
-                            
-                            {
-                                std::lock_guard<std::mutex> lock(target_mutex_);
-                                if (target_tracking_) {
-                                    cv::circle(display_processed, target_position_, 20, 
-                                              cv::Scalar(0, 255, 255), 2);
-                                    cv::putText(display_processed, "TRACKING", cv::Point(10, 30),
-                                              cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-                                }
-                            }
-                            
-                            auto now = std::chrono::steady_clock::now();
-                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                now - processed_image_timestamp_).count();
-                            
-                            if (elapsed > 500) {
-                                cv::putText(display_processed, "STALE", cv::Point(500, 30),
-                                          cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
-                            }
-                        }
-                    }
-                    
-                    if (!display_processed.empty()) {
-                        cv::imshow("Processed Image", display_processed);
-                    }
-                }
-                
-                int key = cv::waitKey(frame_delay_ms) & 0xFF;
-                if (key == 27) { // ESC key
-                    display_running_ = false;
-                    RCLCPP_INFO(logger_, "ESC pressed, stopping display");
-                } else if (key == 's' || key == 'S') {
-                    save_current_frame();
-                }
-                
-                frame_counter++;
-                
-                if (frame_counter % 60 == 0) {
                     auto now = std::chrono::steady_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now - last_fps_time).count();
-                    double fps = 60000.0 / static_cast<double>(std::max(1L, elapsed));
-                    RCLCPP_DEBUG(logger_, "Display FPS: %.1f", fps);
-                    last_fps_time = now;
+                        now - raw_image_timestamp_).count();
+                    
+                    if (elapsed > 500) {
+                        cv::putText(display_raw, "STALE", cv::Point(10, 30),
+                                  cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
+                    }
                 }
-                
-            } catch (const std::exception& e) {
-                RCLCPP_ERROR(logger_, "Display error: %s", e.what());
+            }
+            
+            if (!display_raw.empty()) {
+                if (window_scale_ != 1.0) {
+                    cv::resize(display_raw, display_raw, cv::Size(), window_scale_, window_scale_);
+                }
+                auto msg = cv_bridge::CvImage(header, "bgr8", display_raw).toImageMsg();
+                raw_debug_pub_->publish(*msg);
             }
         }
         
-        RCLCPP_INFO(logger_, "Display loop ended");
+        if (display_processed_) {
+            cv::Mat display_processed;
+            std_msgs::msg::Header header;
+            {
+                std::lock_guard<std::mutex> lock(processed_mutex_);
+                if (!processed_image_.empty()) {
+                    display_processed = processed_image_.clone();
+                    header = processed_image_header_;
+                    
+                    if (display_processed.channels() == 1) {
+                        cv::cvtColor(display_processed, display_processed, cv::COLOR_GRAY2BGR);
+                    }
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(target_mutex_);
+                        if (target_tracking_) {
+                            cv::circle(display_processed, target_position_, 20, 
+                                      cv::Scalar(0, 255, 255), 2);
+                            cv::putText(display_processed, "TRACKING", cv::Point(10, 30),
+                                      cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+                        }
+                    }
+                    
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - processed_image_timestamp_).count();
+                    
+                    if (elapsed > 500) {
+                        cv::putText(display_processed, "STALE", cv::Point(500, 30),
+                                  cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2);
+                    }
+                }
+            }
+            
+            if (!display_processed.empty()) {
+                if (window_scale_ != 1.0) {
+                    cv::resize(display_processed, display_processed, cv::Size(), window_scale_, window_scale_);
+                }
+                auto msg = cv_bridge::CvImage(header, "bgr8", display_processed).toImageMsg();
+                processed_debug_pub_->publish(*msg);
+            }
+        }
     }
     
-    void save_current_frame() {
+    bool save_current_frame() {
         std::lock_guard<std::mutex> lock(processed_mutex_);
         if (!processed_image_.empty()) {
             auto now = std::chrono::system_clock::now();
@@ -253,7 +213,9 @@ private:
             std::string filename = save_directory_ + "/frame_" + time_str + ".jpg";
             cv::imwrite(filename, processed_image_);
             RCLCPP_INFO(logger_, "Saved frame: %s", filename.c_str());
+            return true;
         }
+        return false;
     }
 
 private:
@@ -266,9 +228,16 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr raw_image_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr processed_image_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr target_sub_;
+
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_debug_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr processed_debug_pub_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_srv_;
+    rclcpp::TimerBase::SharedPtr timer_;
     
     cv::Mat raw_image_;
+    std_msgs::msg::Header raw_image_header_;
     cv::Mat processed_image_;
+    std_msgs::msg::Header processed_image_header_;
     std::chrono::steady_clock::time_point raw_image_timestamp_;
     std::chrono::steady_clock::time_point processed_image_timestamp_;
     
@@ -280,9 +249,6 @@ private:
     std::mutex processed_mutex_;
     std::mutex target_mutex_;
     
-    std::thread display_thread_;
-    std::atomic<bool> display_running_{true};
-    std::atomic<bool> display_available_{true};
     std::atomic<bool> initialized_{false};
     
     bool display_raw_ = false;
