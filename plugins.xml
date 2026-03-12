@@ -1,4 +1,16 @@
 <library path="rmcs_dart_guidance">
+  <class type="rmcs_dart_guidance::DartVisionCore" base_class_type="rmcs_executor::Component">
+    <description>Image processing node.</description>
+  </class>
+  <class type="rmcs_dart_guidance::TestImageSaver" base_class_type="rmcs_executor::Component">
+    <description>test node.</description>
+  </class>
+  <class type="rmcs_dart_guidance::DebugDisplayComponent" base_class_type="rmcs_executor::Component">
+    <description>test node.</description>
+  </class>
+  <class type="rmcs_dart_guidance::ImagePublisher" base_class_type="rmcs_executor::Component">
+    <description>test node.</description>
+  </class>
   <class type="rmcs_dart_guidance::manager::DartManager" base_class_type="rmcs_executor::Component">
     <description>Dart task manager: schedules Actions and Tasks, manages state machine and error recovery.</description>
   </class>
