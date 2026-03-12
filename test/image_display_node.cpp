@@ -7,7 +7,6 @@
 #include <chrono>
 #include <mutex>
 #include <string>
-#include <std_srvs/srv/trigger.hpp>
 
 namespace rmcs_dart_guidance {
 
@@ -27,8 +26,6 @@ public:
         display_processed_ = get_parameter("display_processed").as_bool();
         max_fps_ = static_cast<int>(get_parameter("max_fps").as_int());
         window_scale_ = get_parameter("window_scale").as_double();
-        save_on_error_ = get_parameter("save_on_error").as_bool();
-        save_directory_ = get_parameter("save_directory").as_string();
 
         RCLCPP_INFO(logger_, "DebugDisplayComponent constructed (Headless Mode)");
     }
@@ -76,20 +73,6 @@ private:
             RCLCPP_INFO(logger_, "Subscribed to target topic: %s", target_topic_.c_str());
         }
         
-        save_srv_ = this->create_service<std_srvs::srv::Trigger>(
-            "~/save_current_frame",
-            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
-                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-                (void)request;
-                if (save_current_frame()) {
-                    response->success = true;
-                    response->message = "Frame saved successfully";
-                } else {
-                    response->success = false;
-                    response->message = "Failed to save frame (buffer empty)";
-                }
-            });
-
         int frame_delay_ms = 1000 / std::max(1, max_fps_);
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(frame_delay_ms),
@@ -201,22 +184,6 @@ private:
             }
         }
     }
-    
-    bool save_current_frame() {
-        std::lock_guard<std::mutex> lock(processed_mutex_);
-        if (!processed_image_.empty()) {
-            auto now = std::chrono::system_clock::now();
-            auto time_t = std::chrono::system_clock::to_time_t(now);
-            char time_str[100];
-            std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", std::localtime(&time_t));
-            
-            std::string filename = save_directory_ + "/frame_" + time_str + ".jpg";
-            cv::imwrite(filename, processed_image_);
-            RCLCPP_INFO(logger_, "Saved frame: %s", filename.c_str());
-            return true;
-        }
-        return false;
-    }
 
 private:
     rclcpp::Logger logger_;
@@ -231,7 +198,6 @@ private:
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_debug_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr processed_debug_pub_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_srv_;
     rclcpp::TimerBase::SharedPtr timer_;
     
     cv::Mat raw_image_;
@@ -255,8 +221,6 @@ private:
     bool display_processed_ = true;
     int max_fps_ = 30;
     double window_scale_ = 1.0;
-    bool save_on_error_ = false;
-    std::string save_directory_ = "./debug_saved";
 };
 
 } // namespace rmcs_dart_guidance
