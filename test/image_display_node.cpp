@@ -144,6 +144,13 @@ private:
         if (display_processed_) {
             cv::Mat display_processed;
             std_msgs::msg::Header header;
+            bool local_target_tracking = false;
+            cv::Point local_target_position;
+            {
+                std::lock_guard<std::mutex> lock(target_mutex_);
+                local_target_tracking = target_tracking_;
+                local_target_position = target_position_;
+            }
             {
                 std::lock_guard<std::mutex> lock(processed_mutex_);
                 if (!processed_image_.empty()) {
@@ -154,14 +161,11 @@ private:
                         cv::cvtColor(display_processed, display_processed, cv::COLOR_GRAY2BGR);
                     }
                     
-                    {
-                        std::lock_guard<std::mutex> lock(target_mutex_);
-                        if (target_tracking_) {
-                            cv::circle(display_processed, target_position_, 20, 
-                                      cv::Scalar(0, 255, 255), 2);
-                            cv::putText(display_processed, "TRACKING", cv::Point(10, 30),
-                                      cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
-                        }
+                    if (local_target_tracking) {
+                        cv::circle(display_processed, local_target_position, 20, 
+                                  cv::Scalar(0, 255, 255), 2);
+                        cv::putText(display_processed, "TRACKING", cv::Point(10, 30),
+                                  cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
                     }
                     
                     auto now = std::chrono::steady_clock::now();
