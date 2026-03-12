@@ -7,12 +7,13 @@ namespace rmcs_dart_guidance {
 class DartGuidanceTracker{
 public:
     explicit DartGuidanceTracker(double min_contour_area = 20.0, double max_distance_threshold = 200.0)
-        : current_position_(-1, -1)
+        : tracking_flag_(false)
+        , current_position_(-1, -1)
         , is_initialized_(false)
         , min_contour_area_(min_contour_area)
         , max_distance_threshold_(max_distance_threshold) {}
 
-    void Init(cv::Point2i& initial_position) { 
+    void Init(const cv::Point2i& initial_position) { 
         current_position_ = initial_position; 
         is_initialized_ = true;
         tracking_count_ = 0;
@@ -22,6 +23,7 @@ public:
 
     void update(const cv::Mat& binary_image) {
         auto start_time = std::chrono::steady_clock::now();
+        valid_contours_ = 0;
 
         if (!is_initialized_) {
             return;

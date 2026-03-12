@@ -40,6 +40,7 @@ public:
     }
 
     void update(const cv::Mat& binary_image) {
+        auto frame_start_time = std::chrono::steady_clock::now();
         if (result_ready_) {
             Init();
         }
@@ -53,8 +54,8 @@ public:
             return;
         }
 
-        double highest_score           = 0;
-        size_t most_possible_target_id = -1;
+        double highest_score           = -1.0;
+        size_t most_possible_target_id = 0;
 
         if (possible_targets_collection_.empty()) {
             Init();
@@ -72,7 +73,7 @@ public:
             result_ready_            = true;
 
             auto end_time_  = std::chrono::steady_clock::now();
-            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_ - start_time_).count();
+            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_ - frame_start_time).count();
             last_process_time_ms_ = delta_time;
         }
     }
@@ -171,7 +172,7 @@ private:
 
         for (size_t i = 0; i < points.size(); ++i) {
             if (!matched[i]) {
-                TargetData new_target_data(points[i], points[i], 0, 1, 0);
+                TargetData new_target_data{points[i], points[i], 0.0, 1, 0};
                 possible_targets_collection_.emplace_back(new_target_data);
             }
         }
