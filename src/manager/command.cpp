@@ -97,6 +97,8 @@ public:
         // ── 最高优先级：双下 → 全部停止 ──────────────────────────────────────
         if (left == S::DOWN && right == S::DOWN) {
             emit_command("cancel");
+                        // RCLCPP_INFO(logger_,"cmd ： cancel");
+
             chambered_ = false;
             prev_right_ = right;
             return;
@@ -105,6 +107,7 @@ public:
         // ── 双中 → 初始状态（recover）────────────────────────────────────────
         if (left == S::MIDDLE && right == S::MIDDLE) {
             emit_command("recover");
+            // RCLCPP_INFO(logger_,"cmd ： recover");
             detect_toggle(right); // 更新边沿状态但不执行动作
             return;
         }
@@ -119,6 +122,9 @@ public:
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> unload");
                 } else {
                     emit_command("launch_prepare");
+
+                                // RCLCPP_INFO(logger_,"cmd ： launch-prepare");
+
                     chambered_ = true;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_prepare");
                 }
@@ -141,17 +147,15 @@ public:
         // ── 左上：设置模式 ───────────────────────────────────────────────────
         if (left == S::UP) {
             if (right == S::MIDDLE) {
-                // 右摇杆控制 yaw，左摇杆控制 pitch（分开防误触）
-                *yaw_delta_output_ = joystick_right_->x() * joystick_sensitivity_;
-                *pitch_delta_output_ = joystick_left_->y() * joystick_sensitivity_;
+                // 发 manual_angle 任务命令，摇杆由 DartManager Action 直接读取
+                emit_command("manual_angle");
             } else if (right == S::DOWN) {
-                // 调整拉力，模式由 yaml 配置决定
-                *force_control_mode_output_ = static_cast<uint8_t>(configured_force_mode_);
-                *force_screw_delta_output_ = joystick_right_->y() * joystick_sensitivity_;
+                // 发 manual_force 任务命令，摇杆由 DartManager Action 直接读取
+                emit_command("manual_force");
+            } else {
+                // 右拨杆上：设置模式下无定义，清空命令
+                emit_command("");
             }
-            // 右拨杆上：设置模式下无定义，增量保持已归零
-
-            emit_command(""); // 设置模式下不发送任务命令
             prev_right_ = right;
             return;
         }
@@ -169,7 +173,7 @@ private:
     //   返回 true 表示检测到一次 toggle 边沿
     bool detect_toggle(rmcs_msgs::Switch current_right) {
         bool triggered =
-            (prev_right_ == rmcs_msgs::Switch::DOWN && current_right == rmcs_msgs::Switch::MIDDLE);
+            (prev_right_ == rmcs_msgs::Switch::MIDDLE && current_right == rmcs_msgs::Switch::DOWN);
         prev_right_ = current_right;
         return triggered;
     }

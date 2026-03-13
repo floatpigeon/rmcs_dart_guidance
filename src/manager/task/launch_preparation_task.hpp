@@ -25,7 +25,7 @@ public:
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
                 rmcs_msgs::DartSliderStatus::DOWN, // 指令状态
-                500,                               // 超时帧数
+                5000,                               // 超时帧数
                 1.0,                               // 堵转阈值
                 100,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
@@ -51,7 +51,7 @@ public:
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
                 rmcs_msgs::DartSliderStatus::UP,   // 指令状态
-                1000,                              // 超时帧数
+                5000,                              // 超时帧数
                 1.0,                               // 堵转阈值
                 100,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
