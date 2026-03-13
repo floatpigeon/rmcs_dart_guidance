@@ -20,6 +20,8 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
+#include <rmcs_msgs/dart_slider_status.hpp>
+
 namespace rmcs_dart_guidance::manager {
 
 class DartManager
@@ -45,10 +47,10 @@ public:
 
         register_input("/dart/manager/command", command_input_, false);
 
-        register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
+        register_output("/dart/manager/belt/command", belt_command_, rmcs_msgs::DartSliderStatus::WAIT);
         register_output(
             "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
-        register_output("/dart/manager/trigger/target_angle", trigger_target_angle_, 0.0);
+        register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
 
         web_cmd_sub_ = create_subscription<std_msgs::msg::String>(
             "/dart/manager/command", 10, [this](const std_msgs::msg::String::ConstSharedPtr& msg) {
@@ -153,7 +155,7 @@ private:
             RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
         }
 
-        *belt_target_velocity_ = 0.0;
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
         *force_screw_target_velocity_ = 0.0;
 
         transition_to(State::IDLE);
@@ -209,7 +211,7 @@ private:
 
     // 失败处理
     void on_task_failure() {
-        *belt_target_velocity_ = 0.0;
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
         *force_screw_target_velocity_ = 0.0;
 
         current_task_->on_exit();
@@ -236,16 +238,16 @@ private:
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
             return std::make_shared<LaunchPreparationTask>(
-                *belt_target_velocity_, *left_belt_velocity_, *right_belt_velocity_,
-                *trigger_target_angle_);
+                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *trigger_lock_enable_);
         }
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
-                *belt_target_velocity_, *left_belt_velocity_, *right_belt_velocity_,
-                *trigger_target_angle_);
+                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *trigger_lock_enable_);
         }
         if (cmd == "fire") {
-            return std::make_shared<FireTask>(*trigger_target_angle_);
+            return std::make_shared<FireTask>(*trigger_lock_enable_);
         }
         return nullptr;
     }
@@ -256,9 +258,9 @@ private:
     InputInterface<double> right_belt_velocity_;
     InputInterface<double> force_screw_velocity_;
 
-    OutputInterface<double> belt_target_velocity_;
+    OutputInterface<rmcs_msgs::DartSliderStatus> belt_command_;
     OutputInterface<double> force_screw_target_velocity_;
-    OutputInterface<double> trigger_target_angle_;
+    OutputInterface<bool> trigger_lock_enable_;
 
     InputInterface<std::string> command_input_;
     std::string last_command_;

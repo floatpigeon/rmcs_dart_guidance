@@ -9,14 +9,14 @@ namespace rmcs_dart_guidance::manager {
 
 class FireTask : public Task {
 public:
-    explicit FireTask(double& trigger_target_angle)
+    explicit FireTask(bool& trigger_lock_enable)
         : Task("fire", "发射") {
 
         then(
             std::make_shared<TriggerControlAction>(
-                trigger_target_angle, // 扳机目标角度（输出）
-                0.0,                  // 设置角度（弧度）
-                100                   // 等待释放完成帧数
+                trigger_lock_enable, // 扳机锁定使能（输出）
+                false,               // 解锁（false）
+                1000                 // 等待释放完成帧数
                 ));
     }
 };
