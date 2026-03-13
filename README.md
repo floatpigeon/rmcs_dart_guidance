@@ -21,21 +21,6 @@ RMCS 框架插件组件，负责：
   └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Interface 约定
-
-### 输入 (来自底层硬件反馈)：
-- `/dart/drive_belt/left/velocity` (`double`) 左同步带实际速度
-- `/dart/drive_belt/right/velocity` (`double`) 右同步带实际速度
-- `/dart/force_screw/velocity` (`double`) 丝杆实际速度
-
-### 输出 (写给底层控制器)：
-- `/dart/manager/belt/target_velocity` (`double`) 同步带目标速度
-- `/dart/manager/force_screw/target_velocity` (`double`) 丝杆目标速度
-- `/dart/manager/trigger/target_angle` (`double`) 扳机舵机目标角度
-
-### 命令接口 (由外部组件/上位机写入，Manager 每帧读取)：
-- `/dart/manager/command` (`std::string`) 任务命令字符串
-
 ## 简单开发手册
 
 ### 1. 组件初始化 (`DartManager`)
