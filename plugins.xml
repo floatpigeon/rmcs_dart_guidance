@@ -17,4 +17,7 @@
   <class type="rmcs_dart_guidance::manager::RemoteCommandBridge" base_class_type="rmcs_executor::Component">
     <description>Translates DR16 remote controller signals into DartManager commands and setting adjustments.</description>
   </class>
+  <class type="rmcs_dart_guidance::manager::WebCommandBridge" base_class_type="rmcs_executor::Component">
+    <description>Handles WebUI ROS communication and heartbeat</description>
+  </class>
 </library>

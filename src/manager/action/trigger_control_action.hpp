@@ -10,13 +10,13 @@ namespace rmcs_dart_guidance::manager {
 class TriggerControlAction : public IAction {
 public:
     TriggerControlAction(
-        double& trigger_target_angle, double lock_angle, uint64_t settle_ticks = 50)
+        bool& trigger_lock_enable, bool lock_enable, uint64_t settle_ticks = 50)
         : IAction("trigger_lock")
-        , trigger_target_angle_(trigger_target_angle)
-        , set_angle_(lock_angle)
+        , trigger_lock_enable_(trigger_lock_enable)
+        , lock_enable_(lock_enable)
         , settle_ticks_(settle_ticks) {}
 
-    void on_enter() override { trigger_target_angle_ = set_angle_; }
+    void on_enter() override { trigger_lock_enable_ = lock_enable_; }
 
     ActionStatus update() override {
         if (elapsed_ticks() >= settle_ticks_) {
@@ -26,13 +26,13 @@ public:
     }
 
     void on_exit() override {
-        // 保持锁定角度，不重置
-        // 扳机在整个发射流程中应保持锁定，直到发射动作显式释放
+        // 保持锁定或释放状态，不重置
+        // 扳机在整个发射流程中应保持状态，直到显式改变
     }
 
 private:
-    double& trigger_target_angle_;
-    double set_angle_;
+    bool& trigger_lock_enable_;
+    bool lock_enable_;
     uint64_t settle_ticks_;
 };
 

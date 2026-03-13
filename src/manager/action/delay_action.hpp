@@ -1,0 +1,25 @@
+#pragma once
+
+#include "action.hpp"
+#include <string>
+
+namespace rmcs_dart_guidance::manager {
+
+class DelayAction : public IAction {
+public:
+    DelayAction(std::string name, uint64_t wait_ticks)
+        : IAction(std::move(name))
+        , wait_ticks_(wait_ticks) {}
+
+    ActionStatus update() override {
+        if (elapsed_ticks() >= wait_ticks_) {
+            return ActionStatus::SUCCESS;
+        }
+        return ActionStatus::RUNNING;
+    }
+
+private:
+    uint64_t wait_ticks_;
+};
+
+} // namespace rmcs_dart_guidance::manager
