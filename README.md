@@ -11,7 +11,7 @@ RMCS 框架插件组件，负责：
 ```text
   ┌─────────────────────────────────────────────────────────────────┐
   │                                                                 │
-  │   IDLE ──[提交Task]──► RUNNING ──[SUCCESS]──► IDLE              │
+  │   IDLE ──[提交Task]──► RUNNING ──[SUCCESS]──► IDLE              |
   │     ▲                     │                                     │
   │     │                     ├──[FAILURE]──► ERROR                 │
   │     │                     │                                     │
