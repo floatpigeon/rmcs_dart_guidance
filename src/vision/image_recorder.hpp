@@ -13,12 +13,13 @@
 #include <atomic>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
+#include <utility>
 
 namespace rmcs_dart_guidance {
 
 class ImageRecorder {
 public:
-    explicit ImageRecorder(rclcpp::Logger logger) : logger_(logger) {}
+    explicit ImageRecorder(rclcpp::Logger logger) : logger_(std::move(logger)) {}
 
     ~ImageRecorder() {
         stop();
