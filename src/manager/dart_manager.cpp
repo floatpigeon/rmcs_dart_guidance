@@ -2,11 +2,8 @@
 #include "manager/action/manual_angle_control.hpp"
 #include "manager/action/manual_force_control.hpp"
 #include "manager/task/cancel_launch_task.hpp"
-#include "manager/task/cancel_launch_task_with_filling.hpp"
 #include "manager/task/fire_task.hpp"
-#include "manager/task/fire_task_with_filling.hpp"
 #include "manager/task/launch_preparation_task.hpp"
-#include "manager/task/launch_preparation_task_with_filling.hpp"
 #include "manager/task/silder_init_task.hpp"
 #include "manager/task/task.hpp"
 
@@ -30,9 +27,7 @@ namespace rmcs_dart_guidance::manager {
 // DartManagerV2 — 在 DartManager 基础上增加：
 //   · shot_count_ (1~4) 发次计数，fire 成功后递增，超4归1
 //   · /dart/manager/lifting/command 输出，供 DartLaunchSettingV2 转换为速度
-//   · /dart/limiting_servo/control_angle 输出，由 FireTask2 直接写值
-//   · 第2~4发使用 LaunchPreparationTask2 / CancelLaunchTask2 / FireTask2
-//   · 升降堵转检测在 LiftingLkAction 内完成（直接读速度反馈，无循环依赖）
+//   · 升降堵转检测在 FillingLiftAction 内完成（直接读速度反馈，无循环依赖）
 class DartManagerV2
     : public rmcs_executor::Component
     , public rclcpp::Node {
@@ -53,6 +48,8 @@ public:
         register_input("/dart/drive_belt/right/velocity", right_belt_velocity_);
         register_input("/dart/drive_belt/left/torque",   left_belt_torque_);
         register_input("/dart/drive_belt/right/torque",  right_belt_torque_);
+        register_input("/dart/lifting_left/velocity",    lifting_left_vel_fb_);
+        register_input("/dart/lifting_right/velocity",   lifting_right_vel_fb_);
         register_input("/dart/force_screw_motor/velocity", force_screw_velocity_);
 
         register_input("/dart/manager/command",     remote_command_input_, false);
@@ -82,7 +79,7 @@ public:
         // 归零模式标志（SliderInitTask 运行期间为 true，限制传送带扭矩到 10%）
         register_output("/dart/manager/belt/homing", belt_homing_mode_, false);
 
-        // 限位舵机角度（FireTask2 写引用）
+        // 限位舵机角度（保留接口，当前任务链未使用）
         register_output("/dart/limiting_servo/control_angle", limiting_servo_angle_, (uint16_t)0u);
 
         try {
@@ -184,6 +181,7 @@ private:
         *belt_target_velocity_ = 0.0;
         *belt_torque_limit_ = 0.0;
         *belt_hold_torque_ = 0.0;
+        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
         *force_screw_target_velocity_ = 0.0;
 
         transition_to(State::IDLE);
@@ -252,6 +250,7 @@ private:
         *belt_target_velocity_ = 0.0;
         *belt_torque_limit_ = 0.0;
         *belt_hold_torque_ = 0.0;
+        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
         *force_screw_target_velocity_ = 0.0;
 
         current_task_->on_exit();
@@ -272,57 +271,44 @@ private:
         }
     }
 
-    // 升降堵转参数便捷透传
-    void pass_lifting_params(
-        rmcs_msgs::DartSliderStatus& cmd,
-        const double*& lv, const double*& rv,
-        double& thr, uint64_t& conf, uint64_t& minr, uint64_t& tout) {
-        cmd  = *lifting_command_;  // unused, just sugar — not called
-        lv   = &(*lifting_left_vel_fb_);
-        rv   = &(*lifting_right_vel_fb_);
-        thr  = lifting_stall_threshold_;
-        conf = lifting_stall_confirm_ticks_;
-        minr = lifting_stall_min_run_ticks_;
-        tout = lifting_stall_timeout_ticks_;
-    }
-
     std::shared_ptr<Task> make_slider_init_task() {
         return std::make_shared<SliderInitTask>(
             *belt_command_,
-            *left_belt_velocity_,  *right_belt_velocity_,
-            *left_belt_torque_,    *right_belt_torque_,
-            *trigger_lock_enable_, *belt_homing_mode_);
+            *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+            *left_belt_velocity_,    *right_belt_velocity_,
+            *left_belt_torque_,      *right_belt_torque_,
+            *trigger_lock_enable_,   *belt_homing_mode_);
     }
 
-    // 任务工厂 — 根据 shot_count_ 路由到对应实现
+    // 任务工厂
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
             return std::make_shared<LaunchPreparationTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
                 *left_belt_velocity_, *right_belt_velocity_,
-                *trigger_lock_enable_);
+                *left_belt_torque_,   *right_belt_torque_,
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
         }
 
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
                 *left_belt_velocity_, *right_belt_velocity_,
+                *left_belt_torque_,   *right_belt_torque_,
                 *trigger_lock_enable_);
         }
 
         if (cmd == "fire") {
-            if (shot_count_ == 1) {
-                return std::make_shared<FireTask>(*trigger_lock_enable_);
-            } else {
-                return std::make_shared<FireTask2>(
-                    *trigger_lock_enable_,
-                    *lifting_command_,
-                    *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                    lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                    lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_,
-                    *limiting_servo_angle_,
-                    limiting_open_angle_, limiting_close_angle_, limiting_fill_ticks_);
-            }
+            return std::make_shared<FireTask>(
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
         }
 
         if (cmd == "manual_angle") {
@@ -357,7 +343,7 @@ private:
     InputInterface<Eigen::Vector2d> joystick_left_;
     InputInterface<Eigen::Vector2d> joystick_right_;
 
-    // 升降速度反馈（LiftingLkAction 堵转检测用）
+    // 升降速度反馈（FillingLiftAction 堵转检测用）
     InputInterface<double> lifting_left_vel_fb_;
     InputInterface<double> lifting_right_vel_fb_;
 

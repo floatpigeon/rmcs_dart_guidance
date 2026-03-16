@@ -17,6 +17,7 @@ public:
         rmcs_msgs::DartSliderStatus& belt_command,
         double& belt_target_velocity, double& belt_torque_limit, double& belt_hold_torque,
         const double& left_belt_velocity, const double& right_belt_velocity,
+        const double& left_belt_torque,   const double& right_belt_torque,
         bool& trigger_lock_enable)
         : Task("cancel_launch", "取消发射") {
 
@@ -34,12 +35,15 @@ public:
                 belt_hold_torque,                  // 同步带保持力矩（输出）
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
+                left_belt_torque,                  // 左同步带力矩（输入）
+                right_belt_torque,                 // 右同步带力矩（输入）
                 rmcs_msgs::DartSliderStatus::DOWN, // 指令状态
                 velocity,                          // 设定速度
                 torque_limit,                      // 设定力矩限制
                 hold_torque,                       // 设定保持力矩
                 5000,                              // 超时帧数
-                1.0,                               // 堵转阈值
+                1.0,                               // 堵转速度阈值
+                0.5,                               // 堵转力矩阈值
                 100,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
                 ));
@@ -61,12 +65,15 @@ public:
                 belt_hold_torque,                  // 同步带保持力矩（输出）
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
+                left_belt_torque,                  // 左同步带力矩（输入）
+                right_belt_torque,                 // 右同步带力矩（输入）
                 rmcs_msgs::DartSliderStatus::UP,   // 指令状态
                 velocity,                          // 设定速度
                 torque_limit,                      // 设定力矩限制
                 hold_torque,                       // 设定保持力矩
                 5000,                              // 超时帧数
-                1.0,                               // 堵转阈值
+                1.0,                               // 堵转速度阈值
+                0.5,                               // 堵转力矩阈值
                 100,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
                 ));

@@ -1,10 +1,13 @@
 #pragma once
 
+#include "manager/action/action_set.hpp"
 #include "manager/action/belt_move_action.hpp"
 #include "manager/action/delay_action.hpp"
+#include "manager/action/filling_lift_action.hpp"
 #include "manager/action/trigger_control_action.hpp"
 #include "manager/task/task.hpp"
 
+#include <cstdint>
 #include <memory>
 
 #include <rmcs_msgs/dart_slider_status.hpp>
@@ -16,7 +19,12 @@ public:
     LaunchPreparationTask(
         rmcs_msgs::DartSliderStatus& belt_command, double& belt_target_velocity,
         double& belt_torque_limit, double& belt_hold_torque, const double& left_belt_velocity,
-        const double& right_belt_velocity, bool& trigger_lock_enable)
+        const double& right_belt_velocity, const double& left_belt_torque,
+        const double& right_belt_torque, bool& trigger_lock_enable,
+        rmcs_msgs::DartSliderStatus& lifting_command,
+        const double& lifting_left_vel_fb, const double& lifting_right_vel_fb,
+        double lifting_stall_threshold, uint64_t lifting_stall_confirm_ticks,
+        uint64_t lifting_stall_min_run_ticks, uint64_t lifting_stall_timeout_ticks)
         : Task("launch_preparation", "滑块发射准备") {
 
         // 在任务内部定义相关物理参数，避免从外部传参，让结构更整洁
@@ -33,12 +41,15 @@ public:
                 belt_hold_torque,                  // 同步带保持力矩（输出）
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
+                left_belt_torque,                  // 左同步带力矩（输入）
+                right_belt_torque,                 // 右同步带力矩（输入）
                 rmcs_msgs::DartSliderStatus::DOWN, // 指令状态
                 velocity,                          // 设定速度
                 torque_limit,                      // 设定力矩限制
                 hold_torque,                       // 设定保持力矩
                 5000,                              // 超时帧数
-                1.0,                               // 堵转阈值
+                1.0,                               // 堵转速度阈值
+                0.5,                               // 堵转力矩阈值
                 100,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
                 ));
@@ -49,7 +60,16 @@ public:
                 50                                 // 等待帧数
                 ));
 
-        then(std::make_shared<TriggerControlAction>(trigger_lock_enable, true, 1000));
+        auto parallel_prepare =
+            std::make_shared<ActionSet>("parallel_prepare", ActionSet::Policy::ALL_SUCCESS);
+        parallel_prepare
+            ->also(std::make_shared<TriggerControlAction>(trigger_lock_enable, true, 1000))
+            .also(std::make_shared<FillingLiftAction>(
+                "filling_lift_down", lifting_command, rmcs_msgs::DartSliderStatus::DOWN,
+                lifting_left_vel_fb, lifting_right_vel_fb, lifting_stall_threshold,
+                lifting_stall_confirm_ticks, lifting_stall_min_run_ticks,
+                lifting_stall_timeout_ticks));
+        then(parallel_prepare);
 
         then(
             std::make_shared<BeltMoveAction>(
@@ -60,12 +80,15 @@ public:
                 belt_hold_torque,                  // 同步带保持力矩（输出）
                 left_belt_velocity,                // 左同步带反馈（输入）
                 right_belt_velocity,               // 右同步带反馈（输入）
+                left_belt_torque,                  // 左同步带力矩（输入）
+                right_belt_torque,                 // 右同步带力矩（输入）
                 rmcs_msgs::DartSliderStatus::UP,   // 指令状态
                 velocity,                          // 设定速度
                 torque_limit,                      // 设定力矩限制
                 hold_torque,                       // 设定保持力矩
                 5000,                              // 超时帧数
-                0.5,                               // 堵转阈值
+                0.5,                               // 堵转速度阈值
+                0.5,                               // 堵转力矩阈值
                 200,                               // 堵转确认帧数
                 50                                 // 最短运行帧数
                 ));
