@@ -2,7 +2,7 @@
 #include "manager/action/manual_angle_control.hpp"
 #include "manager/action/manual_force_control.hpp"
 #include "manager/task/cancel_launch_task.hpp"
-#include "manager/task/fire_task.hpp"
+#include "manager/task/fire_and_preload_task.hpp"
 #include "manager/task/launch_preparation_task.hpp"
 #include "manager/task/silder_init_task.hpp"
 #include "manager/task/task.hpp"
@@ -79,7 +79,7 @@ public:
         // 归零模式标志（SliderInitTask 运行期间为 true，限制传送带扭矩到 10%）
         register_output("/dart/manager/belt/homing", belt_homing_mode_, false);
 
-        // 限位舵机角度（保留接口，当前任务链未使用）
+        // 限位舵机角度（fire_and_preload 任务写引用）
         register_output("/dart/limiting_servo/control_angle", limiting_servo_angle_, (uint16_t)0u);
 
         try {
@@ -303,12 +303,14 @@ private:
         }
 
         if (cmd == "fire") {
-            return std::make_shared<FireTask>(
+            return std::make_shared<FireAndPreloadTask>(
                 *trigger_lock_enable_,
                 *lifting_command_,
                 *lifting_left_vel_fb_, *lifting_right_vel_fb_,
                 lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_,
+                *limiting_servo_angle_,
+                limiting_open_angle_, limiting_close_angle_, limiting_fill_ticks_);
         }
 
         if (cmd == "manual_angle") {

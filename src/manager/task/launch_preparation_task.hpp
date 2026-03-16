@@ -21,10 +21,10 @@ public:
         double& belt_torque_limit, double& belt_hold_torque, const double& left_belt_velocity,
         const double& right_belt_velocity, const double& left_belt_torque,
         const double& right_belt_torque, bool& trigger_lock_enable,
-        rmcs_msgs::DartSliderStatus& lifting_command,
-        const double& lifting_left_vel_fb, const double& lifting_right_vel_fb,
-        double lifting_stall_threshold, uint64_t lifting_stall_confirm_ticks,
-        uint64_t lifting_stall_min_run_ticks, uint64_t lifting_stall_timeout_ticks)
+        rmcs_msgs::DartSliderStatus& lifting_command, const double& lifting_left_vel_fb,
+        const double& lifting_right_vel_fb, double lifting_stall_threshold,
+        uint64_t lifting_stall_confirm_ticks, uint64_t lifting_stall_min_run_ticks,
+        uint64_t lifting_stall_timeout_ticks)
         : Task("launch_preparation", "滑块发射准备") {
 
         // 在任务内部定义相关物理参数，避免从外部传参，让结构更整洁
@@ -64,11 +64,12 @@ public:
             std::make_shared<ActionSet>("parallel_prepare", ActionSet::Policy::ALL_SUCCESS);
         parallel_prepare
             ->also(std::make_shared<TriggerControlAction>(trigger_lock_enable, true, 1000))
-            .also(std::make_shared<FillingLiftAction>(
-                "filling_lift_down", lifting_command, rmcs_msgs::DartSliderStatus::DOWN,
-                lifting_left_vel_fb, lifting_right_vel_fb, lifting_stall_threshold,
-                lifting_stall_confirm_ticks, lifting_stall_min_run_ticks,
-                lifting_stall_timeout_ticks));
+            .also(
+                std::make_shared<FillingLiftAction>(
+                    "filling_lift_down", lifting_command, rmcs_msgs::DartSliderStatus::DOWN,
+                    lifting_left_vel_fb, lifting_right_vel_fb, lifting_stall_threshold,
+                    lifting_stall_confirm_ticks, lifting_stall_min_run_ticks,
+                    lifting_stall_timeout_ticks));
         then(parallel_prepare);
 
         then(
