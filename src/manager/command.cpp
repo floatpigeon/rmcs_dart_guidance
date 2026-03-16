@@ -121,7 +121,7 @@ public:
                     chambered_ = false;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> unload");
                 } else {
-                    emit_command("fill_test");
+                    emit_command("launch-prepare");
 
                                 RCLCPP_INFO(logger_,"cmd ： launch-prepare");
 
