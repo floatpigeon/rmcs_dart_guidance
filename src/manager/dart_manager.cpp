@@ -54,6 +54,9 @@ public:
         register_input("/remote/joystick/right", joystick_right_, false);
 
         register_output("/dart/manager/belt/command", belt_command_, rmcs_msgs::DartSliderStatus::WAIT);
+        register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
+        register_output("/dart/manager/belt/torque_limit", belt_torque_limit_, 0.0);
+        register_output("/dart/manager/belt/hold_torque", belt_hold_torque_, 0.0);
         register_output(
             "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
         register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
@@ -227,12 +230,14 @@ private:
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
             return std::make_shared<LaunchPreparationTask>(
-                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *left_belt_velocity_, *right_belt_velocity_,
                 *trigger_lock_enable_);
         }
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
-                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *left_belt_velocity_, *right_belt_velocity_,
                 *trigger_lock_enable_);
         }
         if (cmd == "fire") {
@@ -268,6 +273,9 @@ private:
     InputInterface<Eigen::Vector2d> joystick_right_;
 
     OutputInterface<rmcs_msgs::DartSliderStatus> belt_command_;
+    OutputInterface<double> belt_target_velocity_;
+    OutputInterface<double> belt_torque_limit_;
+    OutputInterface<double> belt_hold_torque_;
     OutputInterface<double> force_screw_target_velocity_;
     OutputInterface<bool> trigger_lock_enable_;
 
