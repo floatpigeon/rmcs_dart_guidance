@@ -61,12 +61,10 @@ public:
         register_input("/remote/joystick/left",  joystick_left_,  false);
         register_input("/remote/joystick/right", joystick_right_, false);
 
-        // 升降电机速度反馈（LiftingLkAction 用于堵转检测）
-        register_input("/dart/lifting_left/velocity",  lifting_left_vel_fb_);
-        register_input("/dart/lifting_right/velocity", lifting_right_vel_fb_);
-
-        register_output(
-            "/dart/manager/belt/command", belt_command_, rmcs_msgs::DartSliderStatus::WAIT);
+        register_output("/dart/manager/belt/command", belt_command_, rmcs_msgs::DartSliderStatus::WAIT);
+        register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
+        register_output("/dart/manager/belt/torque_limit", belt_torque_limit_, 0.0);
+        register_output("/dart/manager/belt/hold_torque", belt_hold_torque_, 0.0);
         register_output(
             "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
         register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
@@ -182,7 +180,10 @@ private:
             RCLCPP_WARN(logger_, "[DartManagerV2] all tasks cancelled");
         }
 
-        *belt_command_               = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_torque_limit_ = 0.0;
+        *belt_hold_torque_ = 0.0;
         *force_screw_target_velocity_ = 0.0;
 
         transition_to(State::IDLE);
@@ -247,7 +248,10 @@ private:
     }
 
     void on_task_failure() {
-        *belt_command_               = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_torque_limit_ = 0.0;
+        *belt_hold_torque_ = 0.0;
         *force_screw_target_velocity_ = 0.0;
 
         current_task_->on_exit();
@@ -293,45 +297,17 @@ private:
     // 任务工厂 — 根据 shot_count_ 路由到对应实现
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
-            if (shot_count_ == 1) {
-                RCLCPP_INFO(logger_, "[DartManagerV2] creating launch preparation task (shot 1)");
-                return std::make_shared<LaunchPreparationTask>(
-                    *belt_command_,
-                    *left_belt_velocity_,  *right_belt_velocity_,
-                    *left_belt_torque_,    *right_belt_torque_,
-                    *trigger_lock_enable_);
-            } else {
-                RCLCPP_INFO(logger_, "[DartManagerV2] creating launch preparation task (shot 2-4)");
-                return std::make_shared<LaunchPreparationTask2>(
-                    *belt_command_,
-                    *left_belt_velocity_,  *right_belt_velocity_,
-                    *left_belt_torque_,    *right_belt_torque_,
-                    *trigger_lock_enable_,
-                    *lifting_command_,
-                    *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                    lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                    lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
-            }
+            return std::make_shared<LaunchPreparationTask>(
+                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *left_belt_velocity_, *right_belt_velocity_,
+                *trigger_lock_enable_);
         }
 
         if (cmd == "unload" || cmd == "cancel_launch") {
-            if (shot_count_ == 1) {
-                return std::make_shared<CancelLaunchTask>(
-                    *belt_command_,
-                    *left_belt_velocity_,  *right_belt_velocity_,
-                    *left_belt_torque_,    *right_belt_torque_,
-                    *trigger_lock_enable_);
-            } else {
-                return std::make_shared<CancelLaunchTask2>(
-                    *belt_command_,
-                    *left_belt_velocity_,  *right_belt_velocity_,
-                    *left_belt_torque_,    *right_belt_torque_,
-                    *trigger_lock_enable_,
-                    *lifting_command_,
-                    *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                    lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                    lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
-            }
+            return std::make_shared<CancelLaunchTask>(
+                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *left_belt_velocity_, *right_belt_velocity_,
+                *trigger_lock_enable_);
         }
 
         if (cmd == "fire") {
@@ -386,8 +362,11 @@ private:
     InputInterface<double> lifting_right_vel_fb_;
 
     OutputInterface<rmcs_msgs::DartSliderStatus> belt_command_;
-    OutputInterface<double>                      force_screw_target_velocity_;
-    OutputInterface<bool>                        trigger_lock_enable_;
+    OutputInterface<double> belt_target_velocity_;
+    OutputInterface<double> belt_torque_limit_;
+    OutputInterface<double> belt_hold_torque_;
+    OutputInterface<double> force_screw_target_velocity_;
+    OutputInterface<bool> trigger_lock_enable_;
 
     OutputInterface<Eigen::Vector2d> yaw_pitch_control_velocity_;
     OutputInterface<double>          force_control_velocity_;

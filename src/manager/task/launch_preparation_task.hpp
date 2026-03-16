@@ -14,31 +14,61 @@ namespace rmcs_dart_guidance::manager {
 class LaunchPreparationTask : public Task {
 public:
     LaunchPreparationTask(
-        rmcs_msgs::DartSliderStatus& belt_command,
-        const double& left_belt_velocity, const double& right_belt_velocity,
-        const double& left_belt_torque,   const double& right_belt_torque,
-        bool& trigger_lock_enable)
+        rmcs_msgs::DartSliderStatus& belt_command, double& belt_target_velocity,
+        double& belt_torque_limit, double& belt_hold_torque, const double& left_belt_velocity,
+        const double& right_belt_velocity, bool& trigger_lock_enable)
         : Task("launch_preparation", "滑块发射准备") {
 
-        then(std::make_shared<BeltMoveAction>(
-            "belt_move_down",
-            belt_command,
-            left_belt_velocity, right_belt_velocity,
-            left_belt_torque,   right_belt_torque,
-            rmcs_msgs::DartSliderStatus::DOWN,
-            10000, 1.0, 0.5, 200, 50));
+        // 在任务内部定义相关物理参数，避免从外部传参，让结构更整洁
+        double velocity = 100.0;
+        double torque_limit = 5.0;
+        double hold_torque = 1.0;                  // Wait 时的保持力矩
 
-        then(std::make_shared<DelayAction>("belt_wait", 50));
+        then(
+            std::make_shared<BeltMoveAction>(
+                "belt_move_down",                  // 动作名称
+                belt_command,                      // 同步带目标状态（输出）
+                belt_target_velocity,              // 同步带目标速度（输出）
+                belt_torque_limit,                 // 同步带力矩限制（输出）
+                belt_hold_torque,                  // 同步带保持力矩（输出）
+                left_belt_velocity,                // 左同步带反馈（输入）
+                right_belt_velocity,               // 右同步带反馈（输入）
+                rmcs_msgs::DartSliderStatus::DOWN, // 指令状态
+                velocity,                          // 设定速度
+                torque_limit,                      // 设定力矩限制
+                hold_torque,                       // 设定保持力矩
+                5000,                              // 超时帧数
+                1.0,                               // 堵转阈值
+                100,                               // 堵转确认帧数
+                50                                 // 最短运行帧数
+                ));
+
+        then(
+            std::make_shared<DelayAction>(
+                "belt_wait",                       // 动作名称
+                50                                 // 等待帧数
+                ));
 
         then(std::make_shared<TriggerControlAction>(trigger_lock_enable, true, 1000));
 
-        then(std::make_shared<BeltMoveAction>(
-            "belt_reset",
-            belt_command,
-            left_belt_velocity, right_belt_velocity,
-            left_belt_torque,   right_belt_torque,
-            rmcs_msgs::DartSliderStatus::UP,
-            7500, 1.0, 0.5, 100, 50));
+        then(
+            std::make_shared<BeltMoveAction>(
+                "belt_reset",                      // 动作名称
+                belt_command,                      // 同步带目标状态（输出）
+                belt_target_velocity,              // 同步带目标速度（输出）
+                belt_torque_limit,                 // 同步带力矩限制（输出）
+                belt_hold_torque,                  // 同步带保持力矩（输出）
+                left_belt_velocity,                // 左同步带反馈（输入）
+                right_belt_velocity,               // 右同步带反馈（输入）
+                rmcs_msgs::DartSliderStatus::UP,   // 指令状态
+                velocity,                          // 设定速度
+                torque_limit,                      // 设定力矩限制
+                hold_torque,                       // 设定保持力矩
+                5000,                              // 超时帧数
+                0.5,                               // 堵转阈值
+                200,                               // 堵转确认帧数
+                50                                 // 最短运行帧数
+                ));
     }
 };
 
