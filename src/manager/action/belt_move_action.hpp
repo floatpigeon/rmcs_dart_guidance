@@ -13,17 +13,22 @@ namespace rmcs_dart_guidance::manager {
 class BeltMoveAction : public IAction {
 public:
     BeltMoveAction(
-        std::string name, rmcs_msgs::DartSliderStatus& belt_command, const double& left_belt_velocity,
-        const double& right_belt_velocity, rmcs_msgs::DartSliderStatus command, uint64_t timeout_ticks,
-        double stall_velocity_threshold = 1.0, uint64_t stall_confirm_ticks = 20,
-        uint64_t min_running_ticks = 50)
+        std::string name, rmcs_msgs::DartSliderStatus& belt_command,
+        const double& left_belt_velocity, const double& right_belt_velocity,
+        const double& left_belt_torque, const double& right_belt_torque,
+        rmcs_msgs::DartSliderStatus command, uint64_t timeout_ticks,
+        double stall_velocity_threshold = 1.0, double stall_torque_threshold = 0.5,
+        uint64_t stall_confirm_ticks = 20, uint64_t min_running_ticks = 50)
         : IAction(std::move(name))
         , belt_command_(belt_command)
         , left_belt_vel_(left_belt_velocity)
         , right_belt_vel_(right_belt_velocity)
+        , left_belt_torque_(left_belt_torque)
+        , right_belt_torque_(right_belt_torque)
         , command_(command)
         , timeout_ticks_(timeout_ticks)
-        , stall_threshold_(stall_velocity_threshold)
+        , stall_vel_threshold_(stall_velocity_threshold)
+        , stall_torque_threshold_(stall_torque_threshold)
         , stall_confirm_ticks_(stall_confirm_ticks)
         , min_running_ticks_(min_running_ticks) {}
 
@@ -39,8 +44,10 @@ public:
 
         if (elapsed_ticks() > min_running_ticks_) {
             double avg_vel = (std::abs(left_belt_vel_) + std::abs(right_belt_vel_)) / 2.0;
+            bool torque_active = std::abs(left_belt_torque_) > stall_torque_threshold_
+                              || std::abs(right_belt_torque_) > stall_torque_threshold_;
 
-            if (avg_vel < stall_threshold_) {
+            if (avg_vel < stall_vel_threshold_ && torque_active) {
                 ++stall_counter_;
                 if (stall_counter_ >= stall_confirm_ticks_) {
                     return ActionStatus::SUCCESS;
@@ -59,10 +66,13 @@ private:
     rmcs_msgs::DartSliderStatus& belt_command_;
     const double& left_belt_vel_;
     const double& right_belt_vel_;
+    const double& left_belt_torque_;
+    const double& right_belt_torque_;
 
     rmcs_msgs::DartSliderStatus command_;
     uint64_t timeout_ticks_;
-    double stall_threshold_;
+    double stall_vel_threshold_;
+    double stall_torque_threshold_;
     uint64_t stall_confirm_ticks_;
     uint64_t min_running_ticks_;
 

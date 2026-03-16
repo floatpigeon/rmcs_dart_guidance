@@ -41,8 +41,10 @@ public:
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true))
         , logger_(get_logger()) {
 
-        register_input("/dart/drive_belt/left/velocity", left_belt_velocity_);
+        register_input("/dart/drive_belt/left/velocity",  left_belt_velocity_);
         register_input("/dart/drive_belt/right/velocity", right_belt_velocity_);
+        register_input("/dart/drive_belt/left/torque",   left_belt_torque_);
+        register_input("/dart/drive_belt/right/torque",  right_belt_torque_);
         register_input("/dart/force_screw/velocity", force_screw_velocity_);
 
         // 遥控器与 WebUI 命令输入
@@ -227,12 +229,16 @@ private:
     std::shared_ptr<Task> make_task(const std::string& cmd) {
         if (cmd == "launch_prepare") {
             return std::make_shared<LaunchPreparationTask>(
-                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *belt_command_,
+                *left_belt_velocity_,  *right_belt_velocity_,
+                *left_belt_torque_,    *right_belt_torque_,
                 *trigger_lock_enable_);
         }
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
-                *belt_command_, *left_belt_velocity_, *right_belt_velocity_,
+                *belt_command_,
+                *left_belt_velocity_,  *right_belt_velocity_,
+                *left_belt_torque_,    *right_belt_torque_,
                 *trigger_lock_enable_);
         }
         if (cmd == "fire") {
@@ -262,6 +268,8 @@ private:
 
     InputInterface<double> left_belt_velocity_;
     InputInterface<double> right_belt_velocity_;
+    InputInterface<double> left_belt_torque_;
+    InputInterface<double> right_belt_torque_;
     InputInterface<double> force_screw_velocity_;
 
     InputInterface<Eigen::Vector2d> joystick_left_;

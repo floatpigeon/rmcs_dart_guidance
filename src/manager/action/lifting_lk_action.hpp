@@ -12,7 +12,7 @@ namespace rmcs_dart_guidance::manager {
 //   on_enter: 写入 lifting_command（UP/DOWN），触发 DartLaunchSettingV2 开始速度控制
 //   update:   直接读取升降电机速度反馈，检测堵转
 //             - 超过 stall_min_run_ticks 后开始检测
-//             - 左右速度均低于 stall_threshold 持续 stall_confirm_ticks → SUCCESS
+//             - 左右任一速度低于 stall_threshold 持续 stall_confirm_ticks → SUCCESS（任一堵转即全部堵转）
 //             - 超过 timeout_ticks → FAILURE
 class LiftingLkAction : public IAction {
 public:
@@ -57,7 +57,8 @@ public:
         if (elapsed_ticks() < stall_min_run_ticks_)
             return ActionStatus::RUNNING;
 
-        if (std::abs(left_vel_fb_) < stall_threshold_ &&
+        // 任一电机堵转即视为全部堵转（避免单侧堵转导致机构歪斜）
+        if (std::abs(left_vel_fb_) < stall_threshold_ ||
             std::abs(right_vel_fb_) < stall_threshold_) {
             ++stall_count_;
         } else {

@@ -23,12 +23,11 @@ class LaunchPreparationTask2 : public Task {
 public:
     LaunchPreparationTask2(
         rmcs_msgs::DartSliderStatus& belt_command,
-        const double& left_belt_velocity,
-        const double& right_belt_velocity,
+        const double& left_belt_velocity,  const double& right_belt_velocity,
+        const double& left_belt_torque,    const double& right_belt_torque,
         bool& trigger_lock_enable,
         rmcs_msgs::DartSliderStatus& lifting_command,
-        const double& lifting_left_vel_fb,
-        const double& lifting_right_vel_fb,
+        const double& lifting_left_vel_fb, const double& lifting_right_vel_fb,
         double lifting_stall_threshold,
         uint64_t lifting_stall_confirm_ticks,
         uint64_t lifting_stall_min_run_ticks,
@@ -37,9 +36,11 @@ public:
 
         then(std::make_shared<BeltMoveAction>(
             "belt_move_down",
-            belt_command, left_belt_velocity, right_belt_velocity,
+            belt_command,
+            left_belt_velocity, right_belt_velocity,
+            left_belt_torque,   right_belt_torque,
             rmcs_msgs::DartSliderStatus::DOWN,
-            5000, 1.0, 100, 50));
+            7500, 1.0, 0.5, 100, 50));
 
         then(std::make_shared<DelayAction>("belt_wait", 50));
 
@@ -57,9 +58,11 @@ public:
 
         then(std::make_shared<BeltMoveAction>(
             "belt_reset",
-            belt_command, left_belt_velocity, right_belt_velocity,
+            belt_command,
+            left_belt_velocity, right_belt_velocity,
+            left_belt_torque,   right_belt_torque,
             rmcs_msgs::DartSliderStatus::UP,
-            5000, 1.0, 100, 50));
+            7500, 1.0, 0.5, 100, 50));
     }
 };
 
