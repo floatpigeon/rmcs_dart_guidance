@@ -148,6 +148,9 @@ private:
         }
 
         *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_torque_limit_ = 0.0;
+        *belt_hold_torque_ = 0.0;
         *force_screw_target_velocity_ = 0.0;
 
         transition_to(State::IDLE);
@@ -204,6 +207,9 @@ private:
     // 失败处理
     void on_task_failure() {
         *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_torque_limit_ = 0.0;
+        *belt_hold_torque_ = 0.0;
         *force_screw_target_velocity_ = 0.0;
 
         current_task_->on_exit();
