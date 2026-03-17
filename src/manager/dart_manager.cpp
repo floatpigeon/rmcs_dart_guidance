@@ -20,14 +20,14 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
+#include <rmcs_msgs/dart_limiting_servo_status.hpp>
 #include <rmcs_msgs/dart_slider_status.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
-// DartManagerV2 — 在 DartManager 基础上增加：
-//   · shot_count_ (1~4) 发次计数，fire 成功后递增，超4归1
-//   · /dart/manager/lifting/command 输出，供 DartLaunchSettingV2 转换为速度
-//   · 升降堵转检测在 FillingLiftAction 内完成（直接读速度反馈，无循环依赖）
+// DartManagerV2
+//   · /dart/manager/lifting/command、/dart/manager/limiting/command 输出给下层执行组件
+//   · 升降堵转检测仍在 FillingLiftAction 内完成（直接读速度反馈，无循环依赖）
 class DartManagerV2
     : public rmcs_executor::Component
     , public rclcpp::Node {
@@ -50,7 +50,6 @@ public:
         register_input("/dart/drive_belt/right/torque",  right_belt_torque_);
         register_input("/dart/lifting_left/velocity",    lifting_left_vel_fb_);
         register_input("/dart/lifting_right/velocity",   lifting_right_vel_fb_);
-        register_input("/dart/force_screw_motor/velocity", force_screw_velocity_);
 
         register_input("/dart/manager/command",     remote_command_input_, false);
         register_input("/dart/manager/web_command", web_command_input_,    false);
@@ -62,25 +61,19 @@ public:
         register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
         register_output("/dart/manager/belt/torque_limit", belt_torque_limit_, 0.0);
         register_output("/dart/manager/belt/hold_torque", belt_hold_torque_, 0.0);
-        register_output(
-            "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
+        register_output("/dart/manager/belt/wait_zero_velocity", belt_wait_zero_velocity_, false);
         register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
 
-        register_output("/pitch/control/velocity", yaw_pitch_control_velocity_);
+        register_output("/pitch/control/velocity", yaw_pitch_control_velocity_, Eigen::Vector2d::Zero());
         register_output("/force/control/velocity", force_control_velocity_, 0.0);
 
         // 升降指令总线
         register_output(
             "/dart/manager/lifting/command", lifting_command_,
             rmcs_msgs::DartSliderStatus::WAIT);
-
-        // 传送带下降速度缩放（第一发 0.8，其余 1.0）
-        register_output("/dart/manager/belt/down_scale", belt_down_scale_, 0.8);
-        // 归零模式标志（SliderInitTask 运行期间为 true，限制传送带扭矩到 10%）
-        register_output("/dart/manager/belt/homing", belt_homing_mode_, false);
-
-        // 限位舵机角度（fire_and_preload 任务写引用）
-        register_output("/dart/limiting_servo/control_angle", limiting_servo_angle_, (uint16_t)0u);
+        register_output(
+            "/dart/manager/limiting/command", limiting_command_,
+            rmcs_msgs::DartLimitingServoStatus::LOCK);
 
         try {
             max_transform_rate_ = get_parameter("max_transform_rate").as_double();
@@ -93,8 +86,6 @@ public:
             manual_force_scale_ = 5.0;
         }
 
-        limiting_open_angle_  = (uint16_t)get_parameter("limiting_open_angle").as_int();
-        limiting_close_angle_ = (uint16_t)get_parameter("limiting_close_angle").as_int();
         limiting_fill_ticks_  = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
 
         lifting_stall_threshold_    = get_parameter("lifting_stall_threshold").as_double();
@@ -105,9 +96,6 @@ public:
         lifting_stall_timeout_ticks_ =
             (uint64_t)get_parameter("lifting_stall_timeout_ticks").as_int();
 
-        // 初始化限位舵机为关闭态
-        *limiting_servo_angle_ = limiting_close_angle_;
-
         state_pub_ = create_publisher<std_msgs::msg::UInt8>("/dart/manager/state", 10);
 
         submit_task(make_slider_init_task());
@@ -115,9 +103,6 @@ public:
     }
 
     void update() override {
-        // 第一发传送带下降速度减半，其余全速
-        *belt_down_scale_ = (shot_count_ == 1) ? 0.8 : 1.0;
-
         poll_command();
 
         switch (state_) {
@@ -177,12 +162,11 @@ private:
             RCLCPP_WARN(logger_, "[DartManagerV2] all tasks cancelled");
         }
 
-        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *belt_target_velocity_ = 0.0;
-        *belt_torque_limit_ = 0.0;
-        *belt_hold_torque_ = 0.0;
+        enter_belt_wait_zero_velocity_mode();
         *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *force_screw_target_velocity_ = 0.0;
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        *yaw_pitch_control_velocity_ = Eigen::Vector2d::Zero();
+        *force_control_velocity_ = 0.0;
 
         transition_to(State::IDLE);
     }
@@ -194,7 +178,8 @@ private:
             RCLCPP_INFO(logger_, "[DartManagerV2] recovered from ERROR, state=IDLE");
             transition_to(State::IDLE);
         }
-        // 无论 ERROR 还是 IDLE，都重新排队传送带复位（不重置 shot_count_）
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        // 无论 ERROR 还是 IDLE，都重新排队传送带复位
         submit_task(make_slider_init_task());
         RCLCPP_INFO(logger_, "[DartManagerV2] queued SliderInitTask for recovery");
     }
@@ -222,15 +207,6 @@ private:
         first_tick_of_task_ = false;
 
         if (status == ActionStatus::SUCCESS) {
-            // 发次计数：fire 任务成功后递增
-            if (current_task_->name() == "fire") {
-                int prev = shot_count_;
-                shot_count_ = (shot_count_ % 4) + 1;
-                RCLCPP_INFO(
-                    logger_, "[DartManagerV2] fired (shot %d), next shot_count=%d",
-                    prev, shot_count_);
-            }
-
             current_task_->on_exit();
             RCLCPP_INFO(
                 logger_, "[DartManagerV2] task '%s' SUCCESS", current_task_->name().c_str());
@@ -246,18 +222,24 @@ private:
     }
 
     void on_task_failure() {
-        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *belt_target_velocity_ = 0.0;
-        *belt_torque_limit_ = 0.0;
-        *belt_hold_torque_ = 0.0;
-        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *force_screw_target_velocity_ = 0.0;
-
         current_task_->on_exit();
         current_task_.reset();
         task_queue_.clear();
 
+        enter_belt_wait_zero_velocity_mode();
+        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        *yaw_pitch_control_velocity_ = Eigen::Vector2d::Zero();
+        *force_control_velocity_ = 0.0;
+
         transition_to(State::ERROR);
+    }
+
+    void enter_belt_wait_zero_velocity_mode() {
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_hold_torque_ = 0.0;
+        *belt_wait_zero_velocity_ = true;
     }
 
     void transition_to(State new_state) {
@@ -275,16 +257,17 @@ private:
         return std::make_shared<SliderInitTask>(
             *belt_command_,
             *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+            *belt_wait_zero_velocity_,
             *left_belt_velocity_,    *right_belt_velocity_,
-            *left_belt_torque_,      *right_belt_torque_,
-            *trigger_lock_enable_,   *belt_homing_mode_);
+            *left_belt_torque_,      *right_belt_torque_);
     }
 
     // 任务工厂
     std::shared_ptr<Task> make_task(const std::string& cmd) {
-        if (cmd == "launch_prepare") {
+        if (cmd == "launch_prepare" || cmd == "launch-prepare") {
             return std::make_shared<LaunchPreparationTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *belt_wait_zero_velocity_,
                 *left_belt_velocity_, *right_belt_velocity_,
                 *left_belt_torque_,   *right_belt_torque_,
                 *trigger_lock_enable_,
@@ -297,9 +280,14 @@ private:
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *belt_wait_zero_velocity_,
                 *left_belt_velocity_, *right_belt_velocity_,
                 *left_belt_torque_,   *right_belt_torque_,
-                *trigger_lock_enable_);
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
         }
 
         if (cmd == "fire") {
@@ -309,8 +297,7 @@ private:
                 *lifting_left_vel_fb_, *lifting_right_vel_fb_,
                 lifting_stall_threshold_, lifting_stall_confirm_ticks_,
                 lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_,
-                *limiting_servo_angle_,
-                limiting_open_angle_, limiting_close_angle_, limiting_fill_ticks_);
+                *limiting_command_, limiting_fill_ticks_);
         }
 
         if (cmd == "manual_angle") {
@@ -340,7 +327,6 @@ private:
     InputInterface<double> right_belt_velocity_;
     InputInterface<double> left_belt_torque_;
     InputInterface<double> right_belt_torque_;
-    InputInterface<double> force_screw_velocity_;
 
     InputInterface<Eigen::Vector2d> joystick_left_;
     InputInterface<Eigen::Vector2d> joystick_right_;
@@ -353,30 +339,23 @@ private:
     OutputInterface<double> belt_target_velocity_;
     OutputInterface<double> belt_torque_limit_;
     OutputInterface<double> belt_hold_torque_;
-    OutputInterface<double> force_screw_target_velocity_;
-    OutputInterface<bool> trigger_lock_enable_;
+    OutputInterface<bool>   belt_wait_zero_velocity_;
+    OutputInterface<bool>   trigger_lock_enable_;
 
     OutputInterface<Eigen::Vector2d> yaw_pitch_control_velocity_;
     OutputInterface<double>          force_control_velocity_;
 
     OutputInterface<rmcs_msgs::DartSliderStatus> lifting_command_;
-    OutputInterface<double>                      belt_down_scale_;
-    OutputInterface<bool>                        belt_homing_mode_;
-    OutputInterface<uint16_t>                    limiting_servo_angle_;
+    OutputInterface<rmcs_msgs::DartLimitingServoStatus> limiting_command_;
 
     double   max_transform_rate_{500.0};
     double   manual_force_scale_{5.0};
-    uint16_t limiting_open_angle_{500};
-    uint16_t limiting_close_angle_{1000};
     uint64_t limiting_fill_ticks_{500};
 
     double   lifting_stall_threshold_{0.5};
     uint64_t lifting_stall_confirm_ticks_{100};
     uint64_t lifting_stall_min_run_ticks_{500};
     uint64_t lifting_stall_timeout_ticks_{5000};
-
-    // 发次计数（1~4）
-    int shot_count_{1};
 
     InputInterface<std::string> remote_command_input_;
     InputInterface<std::string> web_command_input_;

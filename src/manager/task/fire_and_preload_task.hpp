@@ -8,10 +8,15 @@
 #include <cstdint>
 #include <memory>
 
+#include <rmcs_msgs/dart_limiting_servo_status.hpp>
 #include <rmcs_msgs/dart_slider_status.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
+// FireAndPreloadTask — 执行一次发射并完成预装填：
+//   1. 解锁扳机
+//   2. 填装升降上行
+//   3. 限位舵机执行预装填动作
 class FireAndPreloadTask : public Task {
 public:
     FireAndPreloadTask(
@@ -19,8 +24,7 @@ public:
         const double& lifting_left_vel_fb, const double& lifting_right_vel_fb,
         double lifting_stall_threshold, uint64_t lifting_stall_confirm_ticks,
         uint64_t lifting_stall_min_run_ticks, uint64_t lifting_stall_timeout_ticks,
-        uint16_t& limiting_servo_angle, uint16_t limiting_release_angle,
-        uint16_t limiting_lock_angle, uint64_t preload_fill_ticks)
+        rmcs_msgs::DartLimitingServoStatus& limiting_command, uint64_t preload_fill_ticks)
         : Task("fire", "发射并预装填") {
 
         then(
@@ -30,14 +34,26 @@ public:
                 1000                 // 等待释放完成帧数
                 ));
 
-        then(std::make_shared<FillingLiftAction>(
-            "filling_lift_up", lifting_command, rmcs_msgs::DartSliderStatus::UP,
-            lifting_left_vel_fb, lifting_right_vel_fb, lifting_stall_threshold,
-            lifting_stall_confirm_ticks, lifting_stall_min_run_ticks,
-            lifting_stall_timeout_ticks));
+        then(
+            std::make_shared<FillingLiftAction>(
+                "filling_lift_up",               // 动作名称
+                lifting_command,                 // 升降指令（输出）
+                rmcs_msgs::DartSliderStatus::UP, // 指令状态
+                lifting_left_vel_fb,             // 左升降电机速度反馈（输入）
+                lifting_right_vel_fb,            // 右升降电机速度反馈（输入）
+                lifting_stall_threshold,         // 堵转速度阈值
+                lifting_stall_confirm_ticks,     // 堵转确认帧数
+                lifting_stall_min_run_ticks,     // 最短运行帧数
+                lifting_stall_timeout_ticks      // 超时帧数
+                ));
 
-        then(std::make_shared<FillingLimitServoAction>(
-            limiting_servo_angle, limiting_release_angle, limiting_lock_angle, preload_fill_ticks));
+        then(
+            std::make_shared<FillingLimitServoAction>(
+                limiting_command,                        // 限位舵机状态（输出）
+                rmcs_msgs::DartLimitingServoStatus::FREE, // 先释放
+                rmcs_msgs::DartLimitingServoStatus::LOCK, // 再锁回
+                preload_fill_ticks                      // 预装填持续帧数
+                ));
     }
 };
 

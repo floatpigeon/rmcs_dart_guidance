@@ -32,12 +32,6 @@ class RemoteCommandBridge
     : public rmcs_executor::Component
     , public rclcpp::Node {
 public:
-    // ── 力控模式枚举 ──────────────────────────────────────────────────────────
-    enum class ForceControlMode : uint8_t {
-        MANUAL = 0,      // 手动控制（摇杆直接控制力螺母速度）
-        CLOSED_LOOP = 1, // 力闭环模式
-    };
-
     RemoteCommandBridge()
         : Node(
               get_component_name(),
@@ -53,33 +47,6 @@ public:
         // ── 命令输出（写给 DartManager 读取）─────────────────────────────────
         register_output("/dart/manager/command", command_output_, std::string{});
 
-        // ── 设置模式输出 ─────────────────────────────────────────────────────
-        register_output("/dart/command/yaw_delta", yaw_delta_output_, 0.0);
-        register_output("/dart/command/pitch_delta", pitch_delta_output_, 0.0);
-        register_output("/dart/command/force_screw_delta", force_screw_delta_output_, 0.0);
-        register_output(
-            "/dart/command/force_control_mode", force_control_mode_output_,
-            static_cast<uint8_t>(ForceControlMode::MANUAL));
-
-        // ── 从 yaml 读取力闭环模式配置 ───────────────────────────────────────
-        try {
-            auto mode_str = get_parameter("force_control_mode").as_string();
-            if (mode_str == "closed_loop") {
-                configured_force_mode_ = ForceControlMode::CLOSED_LOOP;
-            } else {
-                configured_force_mode_ = ForceControlMode::MANUAL;
-            }
-        } catch (...) {
-            configured_force_mode_ = ForceControlMode::MANUAL;
-        }
-
-        // ── 从 yaml 读取摇杆灵敏度 ──────────────────────────────────────────
-        try {
-            joystick_sensitivity_ = get_parameter("joystick_sensitivity").as_double();
-        } catch (...) {
-            joystick_sensitivity_ = 0.01;
-        }
-
         RCLCPP_INFO(logger_, "[RemoteCommandBridge] initialized");
     }
 
@@ -89,11 +56,6 @@ public:
 
         auto left = *switch_left_;
         auto right = *switch_right_;
-
-        // 每帧先将设置模式的增量归零，只在对应分支中写入非零值
-        *yaw_delta_output_ = 0.0;
-        *pitch_delta_output_ = 0.0;
-        *force_screw_delta_output_ = 0.0;
 
         // ── 最高优先级：双下 → 全部停止 ──────────────────────────────────────
         if (left == Switch::DOWN && right == Switch::DOWN) {
@@ -124,9 +86,9 @@ public:
                     chambered_ = false;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> unload");
                 } else {
-                    emit_command("launch-prepare");
+                    emit_command("launch_prepare");
 
-                    // RCLCPP_INFO(logger_,"cmd ： launch-prepare");
+                    // RCLCPP_INFO(logger_,"cmd ： launch_prepare");
 
                     chambered_ = true;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_prepare");
@@ -209,16 +171,6 @@ private:
 
     // 命令输出
     OutputInterface<std::string> command_output_;
-
-    // 设置模式输出
-    OutputInterface<double> yaw_delta_output_;
-    OutputInterface<double> pitch_delta_output_;
-    OutputInterface<double> force_screw_delta_output_;
-    OutputInterface<uint8_t> force_control_mode_output_;
-
-    // 配置
-    ForceControlMode configured_force_mode_{ForceControlMode::MANUAL};
-    double joystick_sensitivity_{0.01};
 
     // 内部状态
     rmcs_msgs::Switch prev_right_{rmcs_msgs::Switch::UNKNOWN};

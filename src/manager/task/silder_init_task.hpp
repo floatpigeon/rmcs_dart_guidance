@@ -1,7 +1,6 @@
 #pragma once
 
 #include "manager/action/belt_move_action.hpp"
-#include "manager/action/trigger_control_action.hpp"
 #include "manager/task/task.hpp"
 
 #include <memory>
@@ -10,47 +9,44 @@
 
 namespace rmcs_dart_guidance::manager {
 
-// SliderInitTask — 上电复位任务，对标 V1 的 DISABLE→RESETTING 逻辑：
-//   1. 解锁板机（安全态）
-//   2. 传送带 UP 归零（homing_mode=true → 扭矩限制到10%，防机械限位过热）
-//   on_enter 置 homing_mode=true，on_exit 清 homing_mode=false
+// SliderInitTask — 上电/恢复时执行一次同步带上行复位：
+//   1. 同步带上行到复位位
 class SliderInitTask : public Task {
 public:
     SliderInitTask(
-        rmcs_msgs::DartSliderStatus& belt_command,
-        double& belt_target_velocity, double& belt_torque_limit, double& belt_hold_torque,
-        const double& left_belt_velocity,  const double& right_belt_velocity,
-        const double& left_belt_torque,    const double& right_belt_torque,
-        bool& trigger_lock_enable,
-        bool& belt_homing_mode)
-        : Task("slider_init", "传送带上电复位")
-        , homing_mode_(belt_homing_mode) {
+        rmcs_msgs::DartSliderStatus& belt_command, double& belt_target_velocity,
+        double& belt_torque_limit, double& belt_hold_torque, bool& belt_wait_zero_velocity,
+        const double& left_belt_velocity, const double& right_belt_velocity,
+        const double& left_belt_torque, const double& right_belt_torque)
+        : Task("slider_init", "传送带上行复位") {
+        // 在任务内部定义相关物理参数，避免从外部传参，让结构更整洁
+        double velocity = 15.0;
+        double torque_limit = 1.0;
+        double hold_torque = 1.0;                // Wait 时的保持力矩
 
-        then(std::make_shared<TriggerControlAction>(trigger_lock_enable, false, 100));
-
-        then(std::make_shared<BeltMoveAction>(
-            "belt_home",
-            belt_command,
-            belt_target_velocity, belt_torque_limit, belt_hold_torque,
-            left_belt_velocity,   right_belt_velocity,
-            left_belt_torque,     right_belt_torque,
-            rmcs_msgs::DartSliderStatus::UP,
-            100.0, 5.0, 1.0,  // velocity, torque_limit, hold_torque
-            4000, 0.3, 0.1, 200, 100));
+        then(
+            std::make_shared<BeltMoveAction>(
+                "belt_reset",                    // 动作名称
+                belt_command,                    // 同步带目标状态（输出）
+                belt_target_velocity,            // 同步带目标速度（输出）
+                belt_torque_limit,               // 同步带力矩限制（输出）
+                belt_hold_torque,                // 同步带保持力矩（输出）
+                belt_wait_zero_velocity,         // Wait 时使用零速闭环还是保留力矩
+                left_belt_velocity,              // 左同步带反馈（输入）
+                right_belt_velocity,             // 右同步带反馈（输入）
+                left_belt_torque,                // 左同步带力矩（输入）
+                right_belt_torque,               // 右同步带力矩（输入）
+                rmcs_msgs::DartSliderStatus::UP, // 指令状态
+                velocity,                        // 设定速度
+                torque_limit,                    // 设定力矩限制
+                hold_torque,                     // 设定保持力矩
+                10000,                           // 超时帧数
+                1.0,                             // 堵转速度阈值
+                0.5,                             // 堵转力矩阈值
+                100,                             // 堵转确认帧数
+                50,                              // 最短运行帧数
+                BeltMoveAction::ExitMode::WAIT_ZERO_VELOCITY));
     }
-
-    void on_enter() override {
-        homing_mode_ = true;
-        Task::on_enter();
-    }
-
-    void on_exit() override {
-        homing_mode_ = false;
-        Task::on_exit();
-    }
-
-private:
-    bool& homing_mode_;
 };
 
 } // namespace rmcs_dart_guidance::manager

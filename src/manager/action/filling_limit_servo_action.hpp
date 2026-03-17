@@ -4,38 +4,40 @@
 
 #include <cstdint>
 
+#include <rmcs_msgs/dart_limiting_servo_status.hpp>
+
 namespace rmcs_dart_guidance::manager {
 
-// 填装限位舵机动作：先放开限位，等待 fill_ticks，再锁回。
+// 填装限位舵机动作：先下发 FREE 语义命令，等待 fill_ticks，再下发 LOCK。
 class FillingLimitServoAction : public IAction {
 public:
     FillingLimitServoAction(
-        uint16_t& limiting_control_angle, uint16_t trigger_angle, uint16_t lock_angle,
+        rmcs_msgs::DartLimitingServoStatus& limiting_command,
+        rmcs_msgs::DartLimitingServoStatus trigger_command,
+        rmcs_msgs::DartLimitingServoStatus lock_command,
         uint64_t fill_ticks)
         : IAction("limiting_fill")
-        , limiting_control_angle_(limiting_control_angle)
-        , trigger_angle_(trigger_angle)
-        , lock_angle_(lock_angle)
+        , limiting_command_(limiting_command)
+        , trigger_command_(trigger_command)
+        , lock_command_(lock_command)
         , fill_ticks_(fill_ticks) {}
 
-    void on_enter() override { limiting_control_angle_ = trigger_angle_; }
+    void on_enter() override { limiting_command_ = trigger_command_; }
 
     ActionStatus update() override {
         if (elapsed_ticks() >= fill_ticks_) {
-            limiting_control_angle_ = lock_angle_;
+            limiting_command_ = lock_command_;
             return ActionStatus::SUCCESS;
         }
         return ActionStatus::RUNNING;
     }
 
-    void on_exit() override { limiting_control_angle_ = lock_angle_; }
+    void on_exit() override { limiting_command_ = lock_command_; }
 
 private:
-    uint16_t& limiting_control_angle_;
-
-    uint16_t trigger_angle_;
-    uint16_t lock_angle_;
-
+    rmcs_msgs::DartLimitingServoStatus& limiting_command_;
+    rmcs_msgs::DartLimitingServoStatus trigger_command_;
+    rmcs_msgs::DartLimitingServoStatus lock_command_;
     uint64_t fill_ticks_;
 };
 
