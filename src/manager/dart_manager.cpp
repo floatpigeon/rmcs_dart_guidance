@@ -2,54 +2,58 @@
 #include "manager/action/manual_angle_control.hpp"
 #include "manager/action/manual_force_control.hpp"
 #include "manager/task/cancel_launch_task.hpp"
-#include "manager/task/fire_task.hpp"
+#include "manager/task/fire_and_preload_task.hpp"
 #include "manager/task/launch_preparation_task.hpp"
+#include "manager/task/silder_init_task.hpp"
 #include "manager/task/task.hpp"
 
 #include <cstdint>
 #include <deque>
 #include <memory>
-#include <rcl/publisher.h>
 #include <string>
 
 #include <eigen3/Eigen/Dense>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
-#include <rclcpp/time.hpp>
 #include <rmcs_executor/component.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
+#include <rmcs_msgs/dart_limiting_servo_status.hpp>
 #include <rmcs_msgs/dart_slider_status.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
-class DartManager
+// DartManagerV2
+//   · /dart/manager/lifting/command、/dart/manager/limiting/command 输出给下层执行组件
+//   · 升降堵转检测仍在 FillingLiftAction 内完成（直接读速度反馈，无循环依赖）
+class DartManagerV2
     : public rmcs_executor::Component
     , public rclcpp::Node {
 public:
     enum class State : uint8_t {
-        IDLE = 0,
+        IDLE    = 0,
         RUNNING = 1,
-        ERROR = 2,
+        ERROR   = 2,
     };
 
-    DartManager()
+    DartManagerV2()
         : Node(
               get_component_name(),
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true))
         , logger_(get_logger()) {
 
-        register_input("/dart/drive_belt/left/velocity", left_belt_velocity_);
+        register_input("/dart/drive_belt/left/velocity",  left_belt_velocity_);
         register_input("/dart/drive_belt/right/velocity", right_belt_velocity_);
-        register_input("/dart/force_screw/velocity", force_screw_velocity_);
+        register_input("/dart/drive_belt/left/torque",   left_belt_torque_);
+        register_input("/dart/drive_belt/right/torque",  right_belt_torque_);
+        register_input("/dart/lifting_left/velocity",    lifting_left_vel_fb_);
+        register_input("/dart/lifting_right/velocity",   lifting_right_vel_fb_);
 
-        // 遥控器与 WebUI 命令输入
-        register_input("/dart/manager/command", remote_command_input_, false);
-        register_input("/dart/manager/web_command", web_command_input_, false);
+        register_input("/dart/manager/command",     remote_command_input_, false);
+        register_input("/dart/manager/web_command", web_command_input_,    false);
 
-        // 手动控制所需摇杆输入
         register_input("/remote/joystick/left",  joystick_left_,  false);
         register_input("/remote/joystick/right", joystick_right_, false);
 
@@ -57,15 +61,20 @@ public:
         register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
         register_output("/dart/manager/belt/torque_limit", belt_torque_limit_, 0.0);
         register_output("/dart/manager/belt/hold_torque", belt_hold_torque_, 0.0);
-        register_output(
-            "/dart/manager/force_screw/target_velocity", force_screw_target_velocity_, 0.0);
+        register_output("/dart/manager/belt/wait_zero_velocity", belt_wait_zero_velocity_, false);
         register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
 
-        // 手动角度 / 力螺母速度指令输出（供下游 PID controller 用作 setpoint）
-        register_output("/pitch/control/velocity", yaw_pitch_control_velocity_);
+        register_output("/pitch/control/velocity", yaw_pitch_control_velocity_, Eigen::Vector2d::Zero());
         register_output("/force/control/velocity", force_control_velocity_, 0.0);
 
-        // 从 yaml 读取手动控制参数
+        // 升降指令总线
+        register_output(
+            "/dart/manager/lifting/command", lifting_command_,
+            rmcs_msgs::DartSliderStatus::WAIT);
+        register_output(
+            "/dart/manager/limiting/command", limiting_command_,
+            rmcs_msgs::DartLimitingServoStatus::LOCK);
+
         try {
             max_transform_rate_ = get_parameter("max_transform_rate").as_double();
         } catch (...) {
@@ -77,27 +86,36 @@ public:
             manual_force_scale_ = 5.0;
         }
 
+        limiting_fill_ticks_  = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
+
+        lifting_stall_threshold_    = get_parameter("lifting_stall_threshold").as_double();
+        lifting_stall_confirm_ticks_ =
+            (uint64_t)get_parameter("lifting_stall_confirm_ticks").as_int();
+        lifting_stall_min_run_ticks_ =
+            (uint64_t)get_parameter("lifting_stall_min_run_ticks").as_int();
+        lifting_stall_timeout_ticks_ =
+            (uint64_t)get_parameter("lifting_stall_timeout_ticks").as_int();
+
         state_pub_ = create_publisher<std_msgs::msg::UInt8>("/dart/manager/state", 10);
 
-        RCLCPP_INFO(logger_, "[DartManager] initialized, state=IDLE");
+        submit_task(make_slider_init_task());
+        RCLCPP_INFO(logger_, "[DartManagerV2] initialized, queued SliderInitTask on startup");
     }
 
     void update() override {
         poll_command();
 
         switch (state_) {
-        case State::IDLE: dispatch_next_task(); break;
-        case State::RUNNING: tick_current_task(); break;
-        case State::ERROR: break;
+        case State::IDLE:    dispatch_next_task(); break;
+        case State::RUNNING: tick_current_task();  break;
+        case State::ERROR:   break;
         }
     }
 
 private:
-    // 命令轮询
     void poll_command() {
         std::string cmd;
 
-        // 优先读取 WebUI 命令，其次是遥控器命令
         if (web_command_input_.ready() && !web_command_input_->empty()) {
             cmd = *web_command_input_;
         } else if (remote_command_input_.ready()) {
@@ -120,52 +138,52 @@ private:
             recover();
         } else {
             auto task = make_task(cmd);
-            RCLCPP_INFO(logger_, "[DartManager] received command: '%s'", cmd.c_str());
+            RCLCPP_INFO(logger_, "[DartManagerV2] received command: '%s'", cmd.c_str());
             if (task) {
                 submit_task(std::move(task));
-
             } else {
-                RCLCPP_WARN(logger_, "[DartManager] unknown command: '%s'", cmd.c_str());
+                RCLCPP_WARN(logger_, "[DartManagerV2] unknown command: '%s'", cmd.c_str());
             }
         }
     }
 
-    // 提交任务到队尾
     void submit_task(std::shared_ptr<Task> task) {
         task_queue_.push_back(std::move(task));
         RCLCPP_INFO(
-            logger_, "[DartManager] task queued: %s (queue size=%zu)",
+            logger_, "[DartManagerV2] task queued: %s (queue size=%zu)",
             task_queue_.back()->name().c_str(), task_queue_.size());
     }
 
-    // 清空队列并取消当前任务
     void cancel_all() {
         task_queue_.clear();
         if (current_task_) {
             current_task_->cancel();
             current_task_.reset();
-            RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
+            RCLCPP_WARN(logger_, "[DartManagerV2] all tasks cancelled");
         }
 
-        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *belt_target_velocity_ = 0.0;
-        *belt_torque_limit_ = 0.0;
-        *belt_hold_torque_ = 0.0;
-        *force_screw_target_velocity_ = 0.0;
+        enter_belt_wait_zero_velocity_mode();
+        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        *yaw_pitch_control_velocity_ = Eigen::Vector2d::Zero();
+        *force_control_velocity_ = 0.0;
 
         transition_to(State::IDLE);
     }
 
-    // 状态恢复
     void recover() {
         if (state_ == State::ERROR) {
             current_task_.reset();
-            RCLCPP_INFO(logger_, "[DartManager] recovered from ERROR, state=IDLE");
+            task_queue_.clear();
+            RCLCPP_INFO(logger_, "[DartManagerV2] recovered from ERROR, state=IDLE");
             transition_to(State::IDLE);
         }
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        // 无论 ERROR 还是 IDLE，都重新排队传送带复位
+        submit_task(make_slider_init_task());
+        RCLCPP_INFO(logger_, "[DartManagerV2] queued SliderInitTask for recovery");
     }
 
-    // 从队列取出下一个任务开始执行
     void dispatch_next_task() {
         if (task_queue_.empty())
             return;
@@ -173,55 +191,59 @@ private:
         current_task_ = std::move(task_queue_.front());
         task_queue_.pop_front();
 
-        RCLCPP_INFO(logger_, "[DartManager] dispatching task: '%s'", current_task_->name().c_str());
+        RCLCPP_INFO(
+            logger_, "[DartManagerV2] dispatching task: '%s'", current_task_->name().c_str());
         transition_to(State::RUNNING);
 
         tick_current_task();
     }
 
-    // tick 第一帧
     void tick_current_task() {
         if (!current_task_)
             return;
 
-        // 区分首帧和后续帧
         ActionStatus status =
             first_tick_of_task_ ? current_task_->tick_first() : current_task_->tick();
         first_tick_of_task_ = false;
 
         if (status == ActionStatus::SUCCESS) {
             current_task_->on_exit();
-            RCLCPP_INFO(logger_, "[DartManager] task '%s' SUCCESS", current_task_->name().c_str());
+            RCLCPP_INFO(
+                logger_, "[DartManagerV2] task '%s' SUCCESS", current_task_->name().c_str());
             current_task_.reset();
             transition_to(State::IDLE);
 
         } else if (status == ActionStatus::FAILURE) {
             RCLCPP_ERROR(
-                logger_, "[DartManager] task '%s' FAILURE → state=ERROR",
+                logger_, "[DartManagerV2] task '%s' FAILURE → state=ERROR",
                 current_task_->name().c_str());
             on_task_failure();
         }
-        // RUNNING: 什么都不做，等下一帧
     }
 
-    // 失败处理
     void on_task_failure() {
-        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
-        *belt_target_velocity_ = 0.0;
-        *belt_torque_limit_ = 0.0;
-        *belt_hold_torque_ = 0.0;
-        *force_screw_target_velocity_ = 0.0;
-
         current_task_->on_exit();
         current_task_.reset();
-        task_queue_.clear(); // 清空后续队列
+        task_queue_.clear();
+
+        enter_belt_wait_zero_velocity_mode();
+        *lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
+        *yaw_pitch_control_velocity_ = Eigen::Vector2d::Zero();
+        *force_control_velocity_ = 0.0;
 
         transition_to(State::ERROR);
     }
 
-    // 状态转换
+    void enter_belt_wait_zero_velocity_mode() {
+        *belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        *belt_target_velocity_ = 0.0;
+        *belt_hold_torque_ = 0.0;
+        *belt_wait_zero_velocity_ = true;
+    }
+
     void transition_to(State new_state) {
-        state_ = new_state;
+        state_             = new_state;
         first_tick_of_task_ = true;
 
         if (state_pub_) {
@@ -231,24 +253,53 @@ private:
         }
     }
 
+    std::shared_ptr<Task> make_slider_init_task() {
+        return std::make_shared<SliderInitTask>(
+            *belt_command_,
+            *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+            *belt_wait_zero_velocity_,
+            *left_belt_velocity_,    *right_belt_velocity_,
+            *left_belt_torque_,      *right_belt_torque_);
+    }
+
     // 任务工厂
-    // 新增任务时新建独立的 Task 类 hpp 文件和 if-else
     std::shared_ptr<Task> make_task(const std::string& cmd) {
-        if (cmd == "launch_prepare") {
+        if (cmd == "launch_prepare" || cmd == "launch-prepare") {
             return std::make_shared<LaunchPreparationTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *belt_wait_zero_velocity_,
                 *left_belt_velocity_, *right_belt_velocity_,
-                *trigger_lock_enable_);
+                *left_belt_torque_,   *right_belt_torque_,
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
         }
+
         if (cmd == "unload" || cmd == "cancel_launch") {
             return std::make_shared<CancelLaunchTask>(
                 *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+                *belt_wait_zero_velocity_,
                 *left_belt_velocity_, *right_belt_velocity_,
-                *trigger_lock_enable_);
+                *left_belt_torque_,   *right_belt_torque_,
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
         }
+
         if (cmd == "fire") {
-            return std::make_shared<FireTask>(*trigger_lock_enable_);
+            return std::make_shared<FireAndPreloadTask>(
+                *trigger_lock_enable_,
+                *lifting_command_,
+                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
+                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
+                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_,
+                *limiting_command_, limiting_fill_ticks_);
         }
+
         if (cmd == "manual_angle") {
             auto task = std::make_shared<Task>("manual_angle", "手动 yaw/pitch 调整");
             task->then(std::make_shared<DartManualAngleControlAction>(
@@ -257,6 +308,7 @@ private:
                 max_transform_rate_));
             return task;
         }
+
         if (cmd == "manual_force") {
             auto task = std::make_shared<Task>("manual_force", "手动力丝杆速度调整");
             task->then(std::make_shared<DartManualForceControlAction>(
@@ -273,38 +325,52 @@ private:
 
     InputInterface<double> left_belt_velocity_;
     InputInterface<double> right_belt_velocity_;
-    InputInterface<double> force_screw_velocity_;
+    InputInterface<double> left_belt_torque_;
+    InputInterface<double> right_belt_torque_;
 
     InputInterface<Eigen::Vector2d> joystick_left_;
     InputInterface<Eigen::Vector2d> joystick_right_;
+
+    // 升降速度反馈（FillingLiftAction 堵转检测用）
+    InputInterface<double> lifting_left_vel_fb_;
+    InputInterface<double> lifting_right_vel_fb_;
 
     OutputInterface<rmcs_msgs::DartSliderStatus> belt_command_;
     OutputInterface<double> belt_target_velocity_;
     OutputInterface<double> belt_torque_limit_;
     OutputInterface<double> belt_hold_torque_;
-    OutputInterface<double> force_screw_target_velocity_;
-    OutputInterface<bool> trigger_lock_enable_;
+    OutputInterface<bool>   belt_wait_zero_velocity_;
+    OutputInterface<bool>   trigger_lock_enable_;
 
     OutputInterface<Eigen::Vector2d> yaw_pitch_control_velocity_;
-    OutputInterface<double> force_control_velocity_;
+    OutputInterface<double>          force_control_velocity_;
 
-    double max_transform_rate_{500.0};
-    double manual_force_scale_{5.0};
+    OutputInterface<rmcs_msgs::DartSliderStatus> lifting_command_;
+    OutputInterface<rmcs_msgs::DartLimitingServoStatus> limiting_command_;
+
+    double   max_transform_rate_{500.0};
+    double   manual_force_scale_{5.0};
+    uint64_t limiting_fill_ticks_{500};
+
+    double   lifting_stall_threshold_{0.5};
+    uint64_t lifting_stall_confirm_ticks_{100};
+    uint64_t lifting_stall_min_run_ticks_{500};
+    uint64_t lifting_stall_timeout_ticks_{5000};
 
     InputInterface<std::string> remote_command_input_;
     InputInterface<std::string> web_command_input_;
-    std::string last_command_;
+    std::string                 last_command_;
 
     rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr state_pub_;
 
     State state_{State::IDLE};
 
-    std::shared_ptr<Task> current_task_;
+    std::shared_ptr<Task>             current_task_;
     std::deque<std::shared_ptr<Task>> task_queue_;
-    bool first_tick_of_task_ = true;
+    bool first_tick_of_task_{true};
 };
 
 } // namespace rmcs_dart_guidance::manager
 
 #include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(rmcs_dart_guidance::manager::DartManager, rmcs_executor::Component)
+PLUGINLIB_EXPORT_CLASS(rmcs_dart_guidance::manager::DartManagerV2, rmcs_executor::Component)
