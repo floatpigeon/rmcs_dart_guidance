@@ -1,7 +1,7 @@
 #pragma once
 
-#include "manager/action/belt_move_action.hpp"
-#include "manager/task/task.hpp"
+#include "manager/core/runtime/task.hpp"
+#include "manager/resources/actions/belt_move_action.hpp"
 
 #include <memory>
 

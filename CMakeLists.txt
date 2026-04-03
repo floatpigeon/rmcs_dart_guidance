@@ -14,6 +14,7 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(rmcs_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(type_description_interfaces REQUIRED)
@@ -34,6 +35,7 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
   ${type_description_interfaces_INCLUDE_DIRS}
   ${rclcpp_INCLUDE_DIRS}
+  ${rmcs_msgs_INCLUDE_DIRS}
   ${rmcs_executor_INCLUDE_DIRS}
   ${rmcs_description_INCLUDE_DIRS}
   ${fast_tf_INCLUDE_DIRS}
@@ -59,6 +61,7 @@ add_library(
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  rmcs_msgs
   std_msgs
   sensor_msgs
   cv_bridge

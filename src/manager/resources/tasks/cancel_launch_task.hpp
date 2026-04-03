@@ -1,10 +1,10 @@
 #pragma once
 
-#include "manager/action/belt_move_action.hpp"
-#include "manager/action/delay_action.hpp"
-#include "manager/action/filling_lift_action.hpp"
-#include "manager/action/trigger_control_action.hpp"
-#include "manager/task/task.hpp"
+#include "manager/core/runtime/task.hpp"
+#include "manager/resources/actions/belt_move_action.hpp"
+#include "manager/resources/actions/delay_action.hpp"
+#include "manager/resources/actions/filling_lift_action.hpp"
+#include "manager/resources/actions/trigger_control_action.hpp"
 
 #include <cstdint>
 #include <memory>

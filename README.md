@@ -6,6 +6,22 @@ RMCS 框架插件组件，负责：
 3. 通过 RMCS Interface 黑板与底层硬件组件通信
 4. 对任务失败提供统一的异常处理入口
 
+## 当前目录结构
+
+```text
+src/manager/
+├── core/
+│   ├── components/   # 组件入口：DartManagerV2 / RemoteCommandBridge
+│   └── runtime/      # 通用运行时：Action / ActionSequence / ActionSet / Task
+└── resources/
+    ├── actions/      # 具体机械动作与手动控制动作
+    ├── tasks/        # 由多个 action 组装出的业务 task
+    └── task_factory.*# 命令到 task 的统一装配入口
+```
+
+重构后的依赖方向为：`core/components -> resources/task_factory -> resources/tasks|actions -> core/runtime`。
+这样 `manager` 的核心调度逻辑与自定义动作资源分离，新增动作/任务时不需要再把实现塞进组件入口文件。
+
 ## 状态机转换图
 
 ```text
@@ -23,8 +39,8 @@ RMCS 框架插件组件，负责：
 
 ## 简单开发手册
 
-### 1. 组件初始化 (`DartManager`)
-`DartManager` 继承自 `rmcs_executor::Component` 和 `rclcpp::Node`，在初始化时会注册一系列输入输出接口，用于与底层硬件和外部组件通信。
+### 1. 组件初始化 (`DartManagerV2`)
+`DartManagerV2` 继承自 `rmcs_executor::Component` 和 `rclcpp::Node`，在初始化时会注册一系列输入输出接口，用于与底层硬件和外部组件通信。
 
 ### 2. 状态机管理
 系统状态由 `State` 枚举定义：
@@ -46,6 +62,6 @@ RMCS 框架插件组件，负责：
 其他任务命令（如 `load`, `fire`）会在 `poll_command()` 中解析并生成对应的 `Task` 加入队列。
 
 ### 4. 任务调度 (`Task` & `Action`)
-开发者可以通过派生 `Action` 或组装现有的 Action 创建 `Task`。`DartManager` 提供了 API 供任务访问底层的硬件输入输出接口，例如 `belt_target_velocity()` 和 `left_belt_velocity()`。
+开发者可以通过派生 `Action` 或组装现有的 Action 创建 `Task`。组件层会先组装 `ManagerTaskContext`，再由 `task_factory` 统一创建具体任务，避免 `DartManagerV2` 直接依赖所有自定义资源实现。
 
 任务执行失败时会触发 `on_task_failure()`，该函数会将输出置零，保证系统安全，并将状态机置为 `ERROR`。

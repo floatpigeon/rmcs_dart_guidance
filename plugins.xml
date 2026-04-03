@@ -11,20 +11,10 @@
   <class type="rmcs_dart_guidance::ImagePublisher" base_class_type="rmcs_executor::Component">
     <description>test node.</description>
   </class>
-  <class type="rmcs_dart_guidance::manager::DartManager" base_class_type="rmcs_executor::Component">
-    <description>Dart task manager: schedules Actions and Tasks, manages state machine and error recovery.</description>
-  </class>
   <class type="rmcs_dart_guidance::manager::RemoteCommandBridge" base_class_type="rmcs_executor::Component">
     <description>Translates DR16 remote controller signals into DartManager commands and setting adjustments.</description>
-  </class>
-  <class type="rmcs_dart_guidance::manager::WebCommandBridge" base_class_type="rmcs_executor::Component">
-    <description>Handles WebUI ROS communication and heartbeat</description>
   </class>
   <class type="rmcs_dart_guidance::manager::DartManagerV2" base_class_type="rmcs_executor::Component">
     <description>Dart task manager V2: 4-shot group counting with lifting and limiting servo control.</description>
   </class>
-  <class type="rmcs_dart_guidance::manager::DartManagerForFillingTest" base_class_type="rmcs_executor::Component">
-    <description>Dart task manager ForFillingTest: 4-shot group counting with lifting and limiting servo control.</description>
-  </class>
-  
 </library>

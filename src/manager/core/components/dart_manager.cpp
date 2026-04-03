@@ -1,11 +1,5 @@
-#include "manager/action/action.hpp"
-#include "manager/action/manual_angle_control.hpp"
-#include "manager/action/manual_force_control.hpp"
-#include "manager/task/cancel_launch_task.hpp"
-#include "manager/task/fire_and_preload_task.hpp"
-#include "manager/task/launch_preparation_task.hpp"
-#include "manager/task/silder_init_task.hpp"
-#include "manager/task/task.hpp"
+#include "manager/core/runtime/task.hpp"
+#include "manager/resources/task_factory.hpp"
 
 #include <cstdint>
 #include <deque>
@@ -17,7 +11,6 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
 #include <rmcs_executor/component.hpp>
-#include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
 #include <rmcs_msgs/dart_limiting_servo_status.hpp>
@@ -51,8 +44,7 @@ public:
         register_input("/dart/lifting_left/velocity",    lifting_left_vel_fb_);
         register_input("/dart/lifting_right/velocity",   lifting_right_vel_fb_);
 
-        register_input("/dart/manager/command",     remote_command_input_, false);
-        register_input("/dart/manager/web_command", web_command_input_,    false);
+        register_input("/dart/manager/command", remote_command_input_, false);
 
         register_input("/remote/joystick/left",  joystick_left_,  false);
         register_input("/remote/joystick/right", joystick_right_, false);
@@ -98,7 +90,7 @@ public:
 
         state_pub_ = create_publisher<std_msgs::msg::UInt8>("/dart/manager/state", 10);
 
-        submit_task(make_slider_init_task());
+        submit_task(make_slider_init_task(task_context()));
         RCLCPP_INFO(logger_, "[DartManagerV2] initialized, queued SliderInitTask on startup");
     }
 
@@ -116,9 +108,7 @@ private:
     void poll_command() {
         std::string cmd;
 
-        if (web_command_input_.ready() && !web_command_input_->empty()) {
-            cmd = *web_command_input_;
-        } else if (remote_command_input_.ready()) {
+        if (remote_command_input_.ready()) {
             cmd = *remote_command_input_;
         }
 
@@ -137,7 +127,7 @@ private:
         } else if (cmd == "recover") {
             recover();
         } else {
-            auto task = make_task(cmd);
+            auto task = make_task(cmd, task_context());
             RCLCPP_INFO(logger_, "[DartManagerV2] received command: '%s'", cmd.c_str());
             if (task) {
                 submit_task(std::move(task));
@@ -180,7 +170,7 @@ private:
         }
         *limiting_command_ = rmcs_msgs::DartLimitingServoStatus::LOCK;
         // 无论 ERROR 还是 IDLE，都重新排队传送带复位
-        submit_task(make_slider_init_task());
+        submit_task(make_slider_init_task(task_context()));
         RCLCPP_INFO(logger_, "[DartManagerV2] queued SliderInitTask for recovery");
     }
 
@@ -253,72 +243,34 @@ private:
         }
     }
 
-    std::shared_ptr<Task> make_slider_init_task() {
-        return std::make_shared<SliderInitTask>(
+    ManagerTaskContext task_context() {
+        return ManagerTaskContext{
             *belt_command_,
-            *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
+            *belt_target_velocity_,
+            *belt_torque_limit_,
+            *belt_hold_torque_,
             *belt_wait_zero_velocity_,
-            *left_belt_velocity_,    *right_belt_velocity_,
-            *left_belt_torque_,      *right_belt_torque_);
-    }
-
-    // 任务工厂
-    std::shared_ptr<Task> make_task(const std::string& cmd) {
-        if (cmd == "launch_prepare" || cmd == "launch-prepare") {
-            return std::make_shared<LaunchPreparationTask>(
-                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
-                *belt_wait_zero_velocity_,
-                *left_belt_velocity_, *right_belt_velocity_,
-                *left_belt_torque_,   *right_belt_torque_,
-                *trigger_lock_enable_,
-                *lifting_command_,
-                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
-        }
-
-        if (cmd == "unload" || cmd == "cancel_launch") {
-            return std::make_shared<CancelLaunchTask>(
-                *belt_command_, *belt_target_velocity_, *belt_torque_limit_, *belt_hold_torque_,
-                *belt_wait_zero_velocity_,
-                *left_belt_velocity_, *right_belt_velocity_,
-                *left_belt_torque_,   *right_belt_torque_,
-                *trigger_lock_enable_,
-                *lifting_command_,
-                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_);
-        }
-
-        if (cmd == "fire") {
-            return std::make_shared<FireAndPreloadTask>(
-                *trigger_lock_enable_,
-                *lifting_command_,
-                *lifting_left_vel_fb_, *lifting_right_vel_fb_,
-                lifting_stall_threshold_, lifting_stall_confirm_ticks_,
-                lifting_stall_min_run_ticks_, lifting_stall_timeout_ticks_,
-                *limiting_command_, limiting_fill_ticks_);
-        }
-
-        if (cmd == "manual_angle") {
-            auto task = std::make_shared<Task>("manual_angle", "手动 yaw/pitch 调整");
-            task->then(std::make_shared<DartManualAngleControlAction>(
-                (*yaw_pitch_control_velocity_)[0], (*yaw_pitch_control_velocity_)[1],
-                *joystick_left_, *joystick_right_,
-                max_transform_rate_));
-            return task;
-        }
-
-        if (cmd == "manual_force") {
-            auto task = std::make_shared<Task>("manual_force", "手动力丝杆速度调整");
-            task->then(std::make_shared<DartManualForceControlAction>(
-                *force_control_velocity_,
-                *joystick_right_,
-                max_transform_rate_,
-                manual_force_scale_));
-            return task;
-        }
-        return nullptr;
+            *left_belt_velocity_,
+            *right_belt_velocity_,
+            *left_belt_torque_,
+            *right_belt_torque_,
+            *trigger_lock_enable_,
+            *yaw_pitch_control_velocity_,
+            *force_control_velocity_,
+            *joystick_left_,
+            *joystick_right_,
+            *lifting_command_,
+            *lifting_left_vel_fb_,
+            *lifting_right_vel_fb_,
+            *limiting_command_,
+            max_transform_rate_,
+            manual_force_scale_,
+            limiting_fill_ticks_,
+            lifting_stall_threshold_,
+            lifting_stall_confirm_ticks_,
+            lifting_stall_min_run_ticks_,
+            lifting_stall_timeout_ticks_,
+        };
     }
 
     rclcpp::Logger logger_;
@@ -358,7 +310,6 @@ private:
     uint64_t lifting_stall_timeout_ticks_{5000};
 
     InputInterface<std::string> remote_command_input_;
-    InputInterface<std::string> web_command_input_;
     std::string                 last_command_;
 
     rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr state_pub_;
