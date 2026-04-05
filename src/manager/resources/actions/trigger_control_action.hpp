@@ -10,8 +10,8 @@ namespace rmcs_dart_guidance::manager {
 class TriggerControlAction : public IAction {
 public:
     TriggerControlAction(
-        bool& trigger_lock_enable, bool lock_enable, uint64_t settle_ticks = 50)
-        : IAction("trigger_lock")
+        std::string name, bool& trigger_lock_enable, bool lock_enable, uint64_t settle_ticks = 50)
+        : IAction(std::move(name))
         , trigger_lock_enable_(trigger_lock_enable)
         , lock_enable_(lock_enable)
         , settle_ticks_(settle_ticks) {}

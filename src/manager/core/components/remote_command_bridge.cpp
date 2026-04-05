@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <string>
 
 #include <eigen3/Eigen/Dense>
@@ -20,8 +19,8 @@ namespace rmcs_dart_guidance::manager {
 //     ├──────────────────┼──────────────────────────────────────────────────────┤
 //     │ DOWN    DOWN     │ 全部停止 → "cancel"                                │
 //     │ MIDDLE  MIDDLE   │ 初始状态 → "recover"                               │
-//     │ MIDDLE  DOWN→MID │ 切换上膛/退膛 → "launch_prepare" / "unload"        │
-//     │ MIDDLE  UP       │ 处于上膛状态时发射 → "fire"                        │
+//     │ MIDDLE  DOWN→MID │ 切换上膛/退膛 → "launch_prepare" / "launch_cancel" │
+//     │ MIDDLE  UP       │ 处于上膛状态时发射 → "fire_preload"                │
 //     │ UP      MIDDLE   │ 设置模式：摇杆调整 yaw/pitch                       │
 //     │ UP      DOWN     │ 设置模式：调整拉力                                 │
 //     └──────────────────┴──────────────────────────────────────────────────────┘
@@ -52,60 +51,58 @@ public:
 
     void update() override {
         using namespace rmcs_msgs;
-        // using Switch = rmcs_msgs::Switch;
 
         auto left = *switch_left_;
         auto right = *switch_right_;
+        bool toggle_triggered = detect_toggle(left, right);
+        bool recover_triggered = detect_recover(left, right) && !toggle_triggered;
 
         // ── 最高优先级：双下 → 全部停止 ──────────────────────────────────────
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");
-            // RCLCPP_INFO(logger_,"cmd ： cancel");
-
             chambered_ = false;
             current_manual_mode_ = "";
-            prev_right_ = right;
-            return;
-        }
-
-        // ── 双中 → 初始状态（recover）────────────────────────────────────────
-        if (left == Switch::MIDDLE && right == Switch::MIDDLE) {
-            emit_command("recover");
-            // RCLCPP_INFO(logger_,"cmd ： recover");
-            current_manual_mode_ = "";
-            detect_toggle(right); // 更新边沿状态但不执行动作
+            update_previous_switches(left, right);
             return;
         }
 
         // ── 左中：操控模式 ───────────────────────────────────────────────────
         if (left == Switch::MIDDLE) {
             // 右拨杆 DOWN→MIDDLE 边沿：切换上膛/退膛
-            if (detect_toggle(right)) {
+            if (toggle_triggered) {
                 if (chambered_) {
-                    emit_command("unload");
+                    emit_command("launch_cancel");
                     chambered_ = false;
-                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> unload");
+                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_cancel");
                 } else {
                     emit_command("launch_prepare");
-
-                    // RCLCPP_INFO(logger_,"cmd ： launch_prepare");
-
                     chambered_ = true;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_prepare");
                 }
+                update_previous_switches(left, right);
+                return;
+            }
+
+            if (recover_triggered) {
+                emit_command("recover");
+                chambered_ = false;
+                current_manual_mode_ = "";
+                update_previous_switches(left, right);
                 return;
             }
 
             // 处于上膛状态时，右拨杆上 → 发射
             if (chambered_ && right == Switch::UP) {
-                emit_command("fire");
+                emit_command("fire_preload");
                 chambered_ = false; // 发射后自动退出上膛状态
-                RCLCPP_INFO(logger_, "[RemoteCommandBridge] fire!");
+                RCLCPP_INFO(logger_, "[RemoteCommandBridge] fire_preload!");
+                update_previous_switches(left, right);
                 return;
             }
 
             // 非触发帧：清空命令（允许 DartManager 重置去重状态）
             emit_command("");
+            update_previous_switches(left, right);
             return;
         }
 
@@ -130,7 +127,7 @@ public:
                     emit_command(target_mode);
                 }
             }
-            prev_right_ = right;
+            update_previous_switches(left, right);
             return;
         }
 
@@ -138,13 +135,13 @@ public:
         if (!current_manual_mode_.empty()) {
             emit_command("cancel");
             current_manual_mode_ = "";
-            prev_right_ = right;
+            update_previous_switches(left, right);
             return;
         }
 
         // 未覆盖的组合（如 left==DOWN right!=DOWN）：安全清空
         emit_command("");
-        prev_right_ = right;
+        update_previous_switches(left, right);
     }
 
 private:
@@ -153,11 +150,21 @@ private:
 
     // ── 边沿检测：右拨杆 DOWN→MIDDLE 触发一次 ────────────────────────────────
     //   返回 true 表示检测到一次 toggle 边沿
-    bool detect_toggle(rmcs_msgs::Switch current_right) {
-        bool triggered =
-            (prev_right_ == rmcs_msgs::Switch::MIDDLE && current_right == rmcs_msgs::Switch::DOWN);
+    bool detect_toggle(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
+        return current_left == rmcs_msgs::Switch::MIDDLE && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::DOWN && current_right == rmcs_msgs::Switch::MIDDLE;
+    }
+
+    bool detect_recover(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
+        return current_left == rmcs_msgs::Switch::MIDDLE
+            && current_right == rmcs_msgs::Switch::MIDDLE
+            && !(prev_left_ == rmcs_msgs::Switch::MIDDLE
+                 && prev_right_ == rmcs_msgs::Switch::MIDDLE);
+    }
+
+    void update_previous_switches(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) {
+        prev_left_ = current_left;
         prev_right_ = current_right;
-        return triggered;
     }
 
     // ── 成员变量 ──────────────────────────────────────────────────────────────
@@ -173,6 +180,7 @@ private:
     OutputInterface<std::string> command_output_;
 
     // 内部状态
+    rmcs_msgs::Switch prev_left_{rmcs_msgs::Switch::UNKNOWN};
     rmcs_msgs::Switch prev_right_{rmcs_msgs::Switch::UNKNOWN};
     bool chambered_{false};           // 是否处于上膛状态
     std::string current_manual_mode_; // 当前激活的手动控制模式

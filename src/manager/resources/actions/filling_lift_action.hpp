@@ -27,8 +27,8 @@ public:
     /// @param stall_min_run_ticks  启动后最少运行帧数，避免启动瞬间误触发
     /// @param timeout_ticks        超时帧数，超时返回 FAILURE
     FillingLiftAction(
-        const char* name, rmcs_msgs::DartSliderStatus& lifting_command,
-        rmcs_msgs::DartSliderStatus command, const double& left_vel_fb, const double& right_vel_fb,
+        const char* name, rmcs_msgs::DartMotorStatus& lifting_command,
+        rmcs_msgs::DartMotorStatus command, const double& left_vel_fb, const double& right_vel_fb,
         double stall_threshold, uint64_t stall_confirm_ticks, uint64_t stall_min_run_ticks,
         uint64_t timeout_ticks = 5000)
         : IAction(name)
@@ -49,7 +49,7 @@ public:
 
     ActionStatus update() override {
         if (elapsed_ticks() >= timeout_ticks_)
-            return ActionStatus::FAILURE;
+            return fail(ActionFailureReason::TIMEOUT);
 
         const double left_abs_vel = std::abs(left_vel_fb_);
         const double right_abs_vel = std::abs(right_vel_fb_);
@@ -71,11 +71,11 @@ public:
                                                       : ActionStatus::RUNNING;
     }
 
-    void on_exit() override { lifting_command_ = rmcs_msgs::DartSliderStatus::WAIT; }
+    void on_exit() override { lifting_command_ = rmcs_msgs::DartMotorStatus::WAIT; }
 
 private:
-    rmcs_msgs::DartSliderStatus& lifting_command_;
-    rmcs_msgs::DartSliderStatus command_;
+    rmcs_msgs::DartMotorStatus& lifting_command_;
+    rmcs_msgs::DartMotorStatus command_;
     const double& left_vel_fb_;
     const double& right_vel_fb_;
     double stall_threshold_;

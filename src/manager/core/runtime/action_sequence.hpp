@@ -27,72 +27,81 @@ public:
     ActionSequence& then(std::shared_ptr<IAction> action) {
         assert(action && "ActionSequence::then: action cannot be null");
         if (action) {
+            action->bind_runtime_context(runtime_context());
             actions_.push_back(std::move(action));
         }
         return *this;
     }
 
+    void bind_runtime_context(const ActionRuntimeContext& context) override {
+        IAction::bind_runtime_context(context);
+        for (auto& action : actions_) {
+            if (action) {
+                action->bind_runtime_context(context);
+            }
+        }
+    }
+
+    bool should_log_lifecycle() const override { return false; }
+
     void on_enter() override {
         cursor_ = 0;
-        if (!actions_.empty()) {
-            first_tick_of_current_ = true;
-        }
+        first_tick_of_current_ = !actions_.empty();
     }
 
     ActionStatus update() override {
         if (actions_.empty())
             return ActionStatus::SUCCESS;
 
-        if (cursor_ >= actions_.size())
-            return ActionStatus::SUCCESS;
-
-        auto& action_ptr = actions_[cursor_];
-        if (!action_ptr) {
-            // Defensive check: if somehow a null action got in, skip it
-            ++cursor_;
-            first_tick_of_current_ = true;
-            return ActionStatus::RUNNING;
-        }
-        auto& current = *action_ptr;
-
-        // 首帧调用 tick_first，后续调用 tick
-        ActionStatus status = first_tick_of_current_ ? current.tick_first() : current.tick();
-        first_tick_of_current_ = false;
-
-        if (status == ActionStatus::SUCCESS) {
-            current.on_exit();
-            ++cursor_;
-            if (cursor_ >= actions_.size()) {
-                return ActionStatus::SUCCESS;
+        while (cursor_ < actions_.size()) {
+            auto& action_ptr = actions_[cursor_];
+            if (!action_ptr) {
+                ++cursor_;
+                first_tick_of_current_ = true;
+                continue;
             }
-            // 下一个动作首帧标记
-            first_tick_of_current_ = true;
-            return ActionStatus::RUNNING;
-        }
 
-        if (status == ActionStatus::FAILURE) {
-            current.cancel();
+            auto& current = *action_ptr;
+            const ActionStatus status =
+                first_tick_of_current_ ? current.tick_first() : current.tick();
+            first_tick_of_current_ = false;
+
+            if (status == ActionStatus::RUNNING) {
+                return ActionStatus::RUNNING;
+            }
+
+            if (status == ActionStatus::SUCCESS) {
+                current.finish_success();
+                ++cursor_;
+                first_tick_of_current_ = true;
+                continue;
+            }
+
+            set_failure_info(current.failure_info());
+            current.finish_failure();
             return ActionStatus::FAILURE;
         }
 
-        return ActionStatus::RUNNING;
+        return ActionStatus::SUCCESS;
     }
 
-    void on_exit() override {
-        // 如果被外部取消时仍有动作在跑，清理它
-        if (cursor_ < actions_.size()) {
-            auto& action_ptr = actions_[cursor_];
-            if (action_ptr) {
-                action_ptr->cancel();
-            }
-        }
-    }
+    void on_exit() override { cancel_active_child(ActionCancelReason::HOST_COMPLETION); }
+
+    void on_cancel(ActionCancelReason reason) override { cancel_active_child(reason); }
 
     std::size_t size() const { return actions_.size(); }
 
     std::size_t cursor() const { return cursor_; }
 
 private:
+    void cancel_active_child(ActionCancelReason reason) {
+        if (cursor_ < actions_.size()) {
+            auto& action_ptr = actions_[cursor_];
+            if (action_ptr && action_ptr->is_active()) {
+                action_ptr->cancel(reason);
+            }
+        }
+    }
     std::vector<std::shared_ptr<IAction>> actions_;
     std::size_t cursor_{0};
     bool first_tick_of_current_{true};

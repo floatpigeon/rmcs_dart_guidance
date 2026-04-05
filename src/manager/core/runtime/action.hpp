@@ -2,6 +2,10 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
+
+#include <rclcpp/logger.hpp>
+#include <rclcpp/logging.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -11,17 +15,52 @@ namespace rmcs_dart_guidance::manager {
 // ─────────────────────────────────────────────────────────────────────────────
 enum class ActionStatus { RUNNING, SUCCESS, FAILURE };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IAction
-//   所有动作的纯虚基类。
-//
-//   生命周期：
-//     on_enter()  —— 第一次被调度时调用（仅一次）
-//     update()    —— 每个控制周期调用，返回当前状态
-//     on_exit()   —— 动作结束（SUCCESS / FAILURE / 被取消）时调用
-//
-//   注意：update() 必须是非阻塞的，不允许在内部 sleep 或 spin。
-// ─────────────────────────────────────────────────────────────────────────────
+enum class ActionFailureReason : uint8_t {
+    NONE,
+    TIMEOUT,
+    STALL,
+    EXTERNAL_CANCEL,
+    DEPENDENCY_FAILURE,
+};
+
+enum class ActionCancelReason : uint8_t {
+    EXTERNAL_CANCEL,
+    HOST_COMPLETION,
+    HOST_FAILURE,
+    DEPENDENCY_FAILURE,
+};
+
+inline const char* to_string(ActionFailureReason reason) {
+    switch (reason) {
+    case ActionFailureReason::NONE: return "none";
+    case ActionFailureReason::TIMEOUT: return "timeout";
+    case ActionFailureReason::STALL: return "stall";
+    case ActionFailureReason::EXTERNAL_CANCEL: return "external_cancel";
+    case ActionFailureReason::DEPENDENCY_FAILURE: return "dependency_failure";
+    }
+    return "unknown";
+}
+
+inline const char* to_string(ActionCancelReason reason) {
+    switch (reason) {
+    case ActionCancelReason::EXTERNAL_CANCEL: return "external_cancel";
+    case ActionCancelReason::HOST_COMPLETION: return "host_completion";
+    case ActionCancelReason::HOST_FAILURE: return "host_failure";
+    case ActionCancelReason::DEPENDENCY_FAILURE: return "dependency_failure";
+    }
+    return "unknown";
+}
+
+struct ActionFailureInfo {
+    std::string action_name;
+    ActionFailureReason reason{ActionFailureReason::NONE};
+};
+
+struct ActionRuntimeContext {
+    std::string task_name;
+    const rclcpp::Logger* logger{nullptr};
+};
+
 class IAction {
 public:
     explicit IAction(std::string name)
@@ -46,6 +85,18 @@ public:
     // 退出时调用（无论是 SUCCESS / FAILURE 还是被外部 cancel），可在此做清理
     virtual void on_exit() {}
 
+    // 被外部取消时调用，默认与 on_exit 一致，容器动作可覆写以传播取消原因
+    virtual void on_cancel(ActionCancelReason reason) {
+        (void)reason;
+        on_exit();
+    }
+
+    virtual void bind_runtime_context(const ActionRuntimeContext& context) {
+        runtime_context_ = context;
+    }
+
+    virtual bool should_log_lifecycle() const { return true; }
+
     // ── 供外部调用 ────────────────────────────────────────────────────────────
 
     const std::string& name() const { return name_; }
@@ -53,27 +104,128 @@ public:
     // 获取动作已运行的帧数
     uint64_t elapsed_ticks() const { return elapsed_ticks_; }
 
+    const ActionRuntimeContext& runtime_context() const { return runtime_context_; }
+
+    const ActionFailureInfo& failure_info() const { return failure_info_; }
+
+    bool is_active() const { return started_ && !finished_; }
+
     // ── 框架内部使用（由 ActionSequence / ActionSet 调用）───────────────────
 
     // 初始化并执行第一帧，返回状态
     ActionStatus tick_first() {
         elapsed_ticks_ = 0;
+        started_ = true;
+        finished_ = false;
+        clear_failure_info();
         on_enter();
+        log_start();
         return tick();
     }
 
     // 执行后续帧
     ActionStatus tick() {
         ++elapsed_ticks_;
-        return update();
+        const ActionStatus status = update();
+
+        if (status == ActionStatus::SUCCESS) {
+            log_success();
+        } else if (status == ActionStatus::FAILURE) {
+            if (failure_info_.action_name.empty()) {
+                failure_info_.action_name = name_;
+            }
+            log_failure();
+        }
+
+        return status;
+    }
+
+    void finish_success() {
+        if (!is_active())
+            return;
+
+        finished_ = true;
+        on_exit();
+        clear_failure_info();
+    }
+
+    void finish_failure() {
+        if (!is_active())
+            return;
+
+        finished_ = true;
+        on_exit();
     }
 
     // 强制退出（被取消时使用）
-    void cancel() { on_exit(); }
+    void cancel(ActionCancelReason reason = ActionCancelReason::EXTERNAL_CANCEL) {
+        if (!is_active())
+            return;
+
+        log_cancel(reason);
+        finished_ = true;
+        on_cancel(reason);
+    }
+
+protected:
+    ActionStatus fail(ActionFailureReason reason) {
+        set_failure_info({name_, reason});
+        return ActionStatus::FAILURE;
+    }
+
+    void set_failure_info(ActionFailureInfo info) {
+        if (info.action_name.empty()) {
+            info.action_name = name_;
+        }
+        failure_info_ = std::move(info);
+    }
+
+    void clear_failure_info() { failure_info_ = ActionFailureInfo{}; }
 
 private:
+    void log_start() const {
+        if (!should_log_lifecycle() || runtime_context_.logger == nullptr)
+            return;
+
+        RCLCPP_INFO(
+            *runtime_context_.logger, "[ActionRuntime] task='%s' action='%s' start",
+            runtime_context_.task_name.c_str(), name_.c_str());
+    }
+
+    void log_success() const {
+        if (!should_log_lifecycle() || runtime_context_.logger == nullptr)
+            return;
+
+        RCLCPP_INFO(
+            *runtime_context_.logger, "[ActionRuntime] task='%s' action='%s' success",
+            runtime_context_.task_name.c_str(), name_.c_str());
+    }
+
+    void log_failure() const {
+        if (!should_log_lifecycle() || runtime_context_.logger == nullptr)
+            return;
+
+        RCLCPP_ERROR(
+            *runtime_context_.logger, "[ActionRuntime] task='%s' action='%s' failure reason='%s'",
+            runtime_context_.task_name.c_str(), failure_info_.action_name.c_str(),
+            to_string(failure_info_.reason));
+    }
+
+    void log_cancel(ActionCancelReason reason) const {
+        if (!should_log_lifecycle() || runtime_context_.logger == nullptr)
+            return;
+
+        RCLCPP_WARN(
+            *runtime_context_.logger, "[ActionRuntime] task='%s' action='%s' cancel reason='%s'",
+            runtime_context_.task_name.c_str(), name_.c_str(), to_string(reason));
+    }
+
     std::string name_;
     uint64_t elapsed_ticks_{0};
+    ActionRuntimeContext runtime_context_;
+    ActionFailureInfo failure_info_;
+    bool started_{false};
+    bool finished_{true};
 };
 
 } // namespace rmcs_dart_guidance::manager

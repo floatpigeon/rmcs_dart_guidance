@@ -13,20 +13,30 @@ namespace rmcs_dart_guidance::manager {
 class BeltMoveAction : public IAction {
 public:
     enum class ExitMode {
-        WAIT_ZERO_VELOCITY,
-        WAIT_HOLD_TORQUE,
+        WAIT_ZERO_VELOCITY, // 闭环零速等待，适合小负载
+        WAIT_HOLD_TORQUE,   // 退出后保持 WAIT + hold torque，直到下一条 belt 命令覆盖
     };
 
     BeltMoveAction(
-        std::string name, rmcs_msgs::DartSliderStatus& belt_command,
-        double& belt_target_velocity, double& belt_torque_limit, double& belt_hold_torque,
-        bool& belt_wait_zero_velocity,
-        const double& left_belt_velocity, const double& right_belt_velocity,
-        const double& left_belt_torque, const double& right_belt_torque,
-        rmcs_msgs::DartSliderStatus command, double velocity, double torque_limit, double hold_torque,
-        uint64_t timeout_ticks, double stall_velocity_threshold = 1.0,
-        double stall_torque_threshold = 0.5,
-        uint64_t stall_confirm_ticks = 20, uint64_t min_running_ticks = 50,
+        std::string name,   //
+        rmcs_msgs::DartMotorStatus& belt_command, //
+        double& belt_target_velocity,             //
+        double& belt_torque_limit,                //
+        double& belt_hold_torque,                 //
+        bool& belt_wait_zero_velocity,            //
+        const double& left_belt_velocity,         //
+        const double& right_belt_velocity,        //
+        const double& left_belt_torque,           //
+        const double& right_belt_torque,          //
+        rmcs_msgs::DartMotorStatus command,       //
+        double velocity,                          //
+        double torque_limit,                      //
+        double hold_torque,                       //
+        uint64_t timeout_ticks,                   //
+        double stall_velocity_threshold = 1.0,    //
+        double stall_torque_threshold = 0.5,      //
+        uint64_t stall_confirm_ticks = 20,        //
+        uint64_t min_running_ticks = 50,          //
         ExitMode exit_mode = ExitMode::WAIT_HOLD_TORQUE)
         : IAction(std::move(name))
         , belt_command_(belt_command)
@@ -59,7 +69,7 @@ public:
 
     ActionStatus update() override {
         if (elapsed_ticks() >= timeout_ticks_) {
-            return ActionStatus::FAILURE;
+            return fail(ActionFailureReason::TIMEOUT);
         }
 
         if (elapsed_ticks() > min_running_ticks_) {
@@ -81,7 +91,7 @@ public:
     }
 
     void on_exit() override {
-        belt_command_ = rmcs_msgs::DartSliderStatus::WAIT;
+        belt_command_ = rmcs_msgs::DartMotorStatus::WAIT;
         belt_target_velocity_ = 0.0;
 
         if (exit_mode_ == ExitMode::WAIT_ZERO_VELOCITY) {
@@ -89,13 +99,13 @@ public:
             belt_hold_torque_ = 0.0;
             return;
         }
-
+        // 保持力矩模式不会主动清理输出，后续 belt 指令会覆盖这组等待态。
         belt_wait_zero_velocity_ = false;
         belt_hold_torque_ = hold_torque_;
     }
 
 private:
-    rmcs_msgs::DartSliderStatus& belt_command_;
+    rmcs_msgs::DartMotorStatus& belt_command_;
     double& belt_target_velocity_;
     double& belt_torque_limit_;
     double& belt_hold_torque_;
@@ -105,7 +115,7 @@ private:
     const double& left_belt_torque_;
     const double& right_belt_torque_;
 
-    rmcs_msgs::DartSliderStatus command_;
+    rmcs_msgs::DartMotorStatus command_;
     double velocity_;
     double torque_limit_;
     double hold_torque_;

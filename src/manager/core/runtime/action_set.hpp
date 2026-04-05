@@ -36,20 +36,32 @@ public:
     ActionSet& also(std::shared_ptr<IAction> action) {
         assert(action && "ActionSet::also: action cannot be null");
         if (action) {
+            action->bind_runtime_context(runtime_context());
             entries_.push_back({std::move(action), false, ActionStatus::RUNNING, false});
         }
         return *this;
     }
 
+    void bind_runtime_context(const ActionRuntimeContext& context) override {
+        IAction::bind_runtime_context(context);
+        for (auto& entry : entries_) {
+            if (entry.action) {
+                entry.action->bind_runtime_context(context);
+            }
+        }
+    }
+
+    bool should_log_lifecycle() const override { return false; }
+
     void on_enter() override {
         for (auto& e : entries_) {
             e.done = false;
             e.started = false;
+            e.status = ActionStatus::RUNNING;
             if (!e.action) {
                 e.done = true; // Skip null actions
             }
         }
-        first_tick_ = true;
     }
 
     ActionStatus update() override {
@@ -59,52 +71,66 @@ public:
 
         int running_count = 0;
         int success_count = 0;
-
         int failure_count = 0;
+        ActionFailureInfo first_failure_info;
+        bool has_failure = false;
 
         for (auto& e : entries_) {
             if (e.done || !e.action)
                 continue;
 
-            if (first_tick_) {
-                e.started = true;
-                e.status = ActionStatus::RUNNING;
-            }
+            const ActionStatus status = e.started ? e.action->tick() : e.action->tick_first();
+            e.started = true;
 
-            ActionStatus s = first_tick_ ? e.action->tick_first() : e.action->tick();
+            e.status = status;
 
-            if (s == ActionStatus::SUCCESS) {
-                e.action->on_exit();
+            if (status == ActionStatus::SUCCESS) {
+                e.action->finish_success();
                 e.done = true;
                 e.status = ActionStatus::SUCCESS;
                 ++success_count;
                 if (policy_ == Policy::ANY_SUCCESS && success_count > 0) {
-                    cancel_running();
+                    cancel_running(ActionCancelReason::HOST_COMPLETION);
                     return ActionStatus::SUCCESS;
                 }
-            } else if (s == ActionStatus::FAILURE) {
-                e.action->cancel();
+            } else if (status == ActionStatus::FAILURE) {
+                e.action->finish_failure();
                 e.done = true;
                 e.status = ActionStatus::FAILURE;
                 ++failure_count;
+                if (!has_failure) {
+                    first_failure_info = e.action->failure_info();
+                    has_failure = true;
+                }
                 if (policy_ == Policy::ALL_SUCCESS && failure_count > 0) {
-                    cancel_running();
+                    set_failure_info(first_failure_info);
+                    cancel_running(ActionCancelReason::DEPENDENCY_FAILURE);
                     return ActionStatus::FAILURE;
                 }
             } else {
                 ++running_count;
             }
         }
-        first_tick_ = false;
 
         if (policy_ == Policy::ALL_SUCCESS) {
             return (running_count == 0) ? ActionStatus::SUCCESS : ActionStatus::RUNNING;
-        } else {               // ANY_SUCCESS
-            return (running_count == 0) ? ActionStatus::FAILURE : ActionStatus::RUNNING;
         }
+
+        if (running_count == 0) {
+            if (has_failure) {
+                set_failure_info(first_failure_info);
+            } else {
+                set_failure_info({name(), ActionFailureReason::DEPENDENCY_FAILURE});
+            }
+            return ActionStatus::FAILURE;
+        }
+
+        return ActionStatus::RUNNING;
     }
 
-    void on_exit() override { cancel_running(); }
+    void on_exit() override { cancel_running(ActionCancelReason::HOST_COMPLETION); }
+
+    void on_cancel(ActionCancelReason reason) override { cancel_running(reason); }
 
 private:
     struct Entry {
@@ -114,10 +140,10 @@ private:
         bool started;
     };
 
-    void cancel_running() {
+    void cancel_running(ActionCancelReason reason) {
         for (auto& e : entries_) {
             if (e.started && !e.done && e.action) {
-                e.action->cancel();
+                e.action->cancel(reason);
                 e.done = true;
             }
         }
@@ -125,7 +151,6 @@ private:
 
     std::vector<Entry> entries_;
     Policy policy_;
-    bool first_tick_{true};
 };
 
 } // namespace rmcs_dart_guidance::manager
