@@ -4,7 +4,8 @@
 
 #include <cmath>
 #include <cstdint>
-#include <rmcs_msgs/dart_slider_status.hpp>
+
+#include <rmcs_msgs/dart_mechanism_command.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -18,7 +19,7 @@ namespace rmcs_dart_guidance::manager {
 class FillingLiftAction : public IAction {
 public:
     /// @param name                 动作名称
-    /// @param lifting_command      升降指令引用（DartManagerV2 的 lifting_command_ 解引用）
+    /// @param lifting_command      升降指令引用（DartManager 的 lifting_command_ 解引用）
     /// @param command              目标状态（UP / DOWN）
     /// @param left_vel_fb          左升降电机速度反馈（rad/s）
     /// @param right_vel_fb         右升降电机速度反馈（rad/s）
@@ -27,10 +28,10 @@ public:
     /// @param stall_min_run_ticks  启动后最少运行帧数，避免启动瞬间误触发
     /// @param timeout_ticks        超时帧数，超时返回 FAILURE
     FillingLiftAction(
-        const char* name, rmcs_msgs::DartMotorStatus& lifting_command,
-        rmcs_msgs::DartMotorStatus command, const double& left_vel_fb, const double& right_vel_fb,
-        double stall_threshold, uint64_t stall_confirm_ticks, uint64_t stall_min_run_ticks,
-        uint64_t timeout_ticks = 5000)
+        const char* name, rmcs_msgs::DartMechanismCommand& lifting_command,
+        rmcs_msgs::DartMechanismCommand command, const double& left_vel_fb,
+        const double& right_vel_fb, double stall_threshold, uint64_t stall_confirm_ticks,
+        uint64_t stall_min_run_ticks, uint64_t timeout_ticks = 5000)
         : IAction(name)
         , lifting_command_(lifting_command)
         , command_(command)
@@ -71,11 +72,11 @@ public:
                                                       : ActionStatus::RUNNING;
     }
 
-    void on_exit() override { lifting_command_ = rmcs_msgs::DartMotorStatus::WAIT; }
+    void on_exit() override { lifting_command_ = rmcs_msgs::DartMechanismCommand::WAIT; }
 
 private:
-    rmcs_msgs::DartMotorStatus& lifting_command_;
-    rmcs_msgs::DartMotorStatus command_;
+    rmcs_msgs::DartMechanismCommand& lifting_command_;
+    rmcs_msgs::DartMechanismCommand command_;
     const double& left_vel_fb_;
     const double& right_vel_fb_;
     double stall_threshold_;

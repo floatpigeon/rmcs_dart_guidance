@@ -32,7 +32,7 @@ public:
         : IAction(std::move(name))
         , policy_(policy) {}
 
-    // 追加动作（Builder 风格）
+    // 追加动作
     ActionSet& also(std::shared_ptr<IAction> action) {
         assert(action && "ActionSet::also: action cannot be null");
         if (action) {

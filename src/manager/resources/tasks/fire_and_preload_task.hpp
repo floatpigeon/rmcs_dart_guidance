@@ -30,7 +30,7 @@ public:
                 std::make_shared<FillingLiftAction>(
                     "filling_lift_up",                    // 动作名称
                     output.lifting_command,               // 升降指令（输出）
-                    rmcs_msgs::DartMotorStatus::UP,       // 指令状态
+                    rmcs_msgs::DartMechanismCommand::UP,  // 指令状态
                     input.lifting_left_vel_fb,            // 左升降电机速度反馈（输入）
                     input.lifting_right_vel_fb,           // 右升降电机速度反馈（输入）
                     settings.lifting_stall_threshold,     // 堵转速度阈值
@@ -43,8 +43,8 @@ public:
                 std::make_shared<FillingLimitServoAction>(
                     "filling_limit_servo",                // 动作名称
                     output.limiting_command,              // 限位舵机状态（输出）
-                    rmcs_msgs::DartServoStatus::FREE,     // 先释放
-                    rmcs_msgs::DartServoStatus::LOCK,     // 再锁回
+                    rmcs_msgs::DartServoCommand::FREE,    // 先释放
+                    rmcs_msgs::DartServoCommand::LOCK,    // 再锁回
                     settings.limiting_fill_ticks          // 预装填持续帧数
                     ));
         }

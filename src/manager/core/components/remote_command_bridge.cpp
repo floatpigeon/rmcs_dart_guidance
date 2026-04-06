@@ -1,6 +1,5 @@
 #include <string>
 
-#include <eigen3/Eigen/Dense>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
@@ -9,24 +8,18 @@
 
 namespace rmcs_dart_guidance::manager {
 
-// ─────────────────────────────────────────────────────────────────────────────
 // RemoteCommandBridge
-//   将遥控器 DR16 的拨杆/摇杆信号翻译为 DartManager 可识别的命令字和控制量。
+//   将遥控器 DR16 的拨杆信号翻译为 DartManager 可识别的离散命令。
 //
 //   键位映射：
 //     ┌──────────────────┬──────────────────────────────────────────────────────┐
 //     │ 左拨杆  右拨杆   │ 功能                                               │
 //     ├──────────────────┼──────────────────────────────────────────────────────┤
-//     │ DOWN    DOWN     │ 全部停止 → "cancel"                                │
-//     │ MIDDLE  MIDDLE   │ 初始状态 → "recover"                               │
-//     │ MIDDLE  DOWN→MID │ 切换上膛/退膛 → "launch_prepare" / "launch_cancel" │
-//     │ MIDDLE  UP       │ 处于上膛状态时发射 → "fire_preload"                │
-//     │ UP      MIDDLE   │ 设置模式：摇杆调整 yaw/pitch                       │
-//     │ UP      DOWN     │ 设置模式：调整拉力                                 │
+//     │ DOWN    DOWN     │ 全部停止 -> "cancel"                                │
+//     │ MIDDLE  MIDDLE   │ 初始状态 -> "recover"                               │
+//     │ MIDDLE  DOWN→MID │ 切换上膛/退膛 -> "launch_prepare" / "launch_cancel" │
+//     │ MIDDLE  UP       │ 处于上膛状态时发射 -> "fire_preload"                │
 //     └──────────────────┴──────────────────────────────────────────────────────┘
-//
-//   所有信息通过 Interface 传递，不持有 DartManager 指针。
-// ─────────────────────────────────────────────────────────────────────────────
 class RemoteCommandBridge
     : public rmcs_executor::Component
     , public rclcpp::Node {
@@ -36,14 +29,9 @@ public:
               get_component_name(),
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true))
         , logger_(get_logger()) {
-
-        // ── 遥控器输入 ───────────────────────────────────────────────────────
         register_input("/remote/switch/left", switch_left_, false);
         register_input("/remote/switch/right", switch_right_, false);
-        register_input("/remote/joystick/left", joystick_left_, false);
-        register_input("/remote/joystick/right", joystick_right_, false);
 
-        // ── 命令输出（写给 DartManager 读取）─────────────────────────────────
         register_output("/dart/manager/command", command_output_, std::string{});
 
         RCLCPP_INFO(logger_, "[RemoteCommandBridge] initialized");
@@ -52,23 +40,21 @@ public:
     void update() override {
         using namespace rmcs_msgs;
 
-        auto left = *switch_left_;
-        auto right = *switch_right_;
-        bool toggle_triggered = detect_toggle(left, right);
-        bool recover_triggered = detect_recover(left, right) && !toggle_triggered;
+        const auto left = *switch_left_;
+        const auto right = *switch_right_;
+        const bool toggle_triggered = detect_toggle(left, right);
+        const bool recover_triggered = detect_recover(left, right) && !toggle_triggered;
 
-        // ── 最高优先级：双下 → 全部停止 ──────────────────────────────────────
+        emit_command("");
+
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");
             chambered_ = false;
-            current_manual_mode_ = "";
             update_previous_switches(left, right);
             return;
         }
 
-        // ── 左中：操控模式 ───────────────────────────────────────────────────
         if (left == Switch::MIDDLE) {
-            // 右拨杆 DOWN→MIDDLE 边沿：切换上膛/退膛
             if (toggle_triggered) {
                 if (chambered_) {
                     emit_command("launch_cancel");
@@ -86,73 +72,30 @@ public:
             if (recover_triggered) {
                 emit_command("recover");
                 chambered_ = false;
-                current_manual_mode_ = "";
                 update_previous_switches(left, right);
                 return;
             }
 
-            // 处于上膛状态时，右拨杆上 → 发射
             if (chambered_ && right == Switch::UP) {
                 emit_command("fire_preload");
-                chambered_ = false; // 发射后自动退出上膛状态
+                chambered_ = false;
                 RCLCPP_INFO(logger_, "[RemoteCommandBridge] fire_preload!");
                 update_previous_switches(left, right);
                 return;
             }
-
-            // 非触发帧：清空命令（允许 DartManager 重置去重状态）
-            emit_command("");
-            update_previous_switches(left, right);
-            return;
         }
 
-        // ── 左上：设置模式 ───────────────────────────────────────────────────
-        if (left == Switch::UP) {
-            std::string target_mode;
-            if (right == Switch::MIDDLE) {
-                target_mode = "manual_angle";
-            } else if (right == Switch::DOWN) {
-                target_mode = "manual_force";
-            }
-
-            if (current_manual_mode_ != target_mode) {
-                // 需要切换模式或退出某手动模式，先发 cancel 打断现有任务
-                emit_command("cancel");
-                current_manual_mode_ = target_mode;
-            } else {
-                // 维持当前模式
-                if (target_mode.empty()) {
-                    emit_command("");
-                } else {
-                    emit_command(target_mode);
-                }
-            }
-            update_previous_switches(left, right);
-            return;
-        }
-
-        // 离开设置模式时：
-        if (!current_manual_mode_.empty()) {
-            emit_command("cancel");
-            current_manual_mode_ = "";
-            update_previous_switches(left, right);
-            return;
-        }
-
-        // 未覆盖的组合（如 left==DOWN right!=DOWN）：安全清空
-        emit_command("");
         update_previous_switches(left, right);
     }
 
 private:
-    // ── 发送命令（写入 OutputInterface）───────────────────────────────────────
     void emit_command(const std::string& cmd) { *command_output_ = cmd; }
 
-    // ── 边沿检测：右拨杆 DOWN→MIDDLE 触发一次 ────────────────────────────────
-    //   返回 true 表示检测到一次 toggle 边沿
     bool detect_toggle(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
-        return current_left == rmcs_msgs::Switch::MIDDLE && prev_left_ == rmcs_msgs::Switch::MIDDLE
-            && prev_right_ == rmcs_msgs::Switch::DOWN && current_right == rmcs_msgs::Switch::MIDDLE;
+        return current_left == rmcs_msgs::Switch::MIDDLE
+            && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::DOWN
+            && current_right == rmcs_msgs::Switch::MIDDLE;
     }
 
     bool detect_recover(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
@@ -167,23 +110,15 @@ private:
         prev_right_ = current_right;
     }
 
-    // ── 成员变量 ──────────────────────────────────────────────────────────────
     rclcpp::Logger logger_;
 
-    // 遥控器输入
     InputInterface<rmcs_msgs::Switch> switch_left_;
     InputInterface<rmcs_msgs::Switch> switch_right_;
-    InputInterface<Eigen::Vector2d> joystick_left_;
-    InputInterface<Eigen::Vector2d> joystick_right_;
-
-    // 命令输出
     OutputInterface<std::string> command_output_;
 
-    // 内部状态
     rmcs_msgs::Switch prev_left_{rmcs_msgs::Switch::UNKNOWN};
     rmcs_msgs::Switch prev_right_{rmcs_msgs::Switch::UNKNOWN};
-    bool chambered_{false};           // 是否处于上膛状态
-    std::string current_manual_mode_; // 当前激活的手动控制模式
+    bool chambered_{false};
 };
 
 } // namespace rmcs_dart_guidance::manager

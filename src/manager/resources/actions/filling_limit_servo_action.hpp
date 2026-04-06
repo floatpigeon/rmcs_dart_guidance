@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <string>
 
-#include <rmcs_msgs/dart_limiting_servo_status.hpp>
+#include <rmcs_msgs/dart_servo_command.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -13,8 +13,8 @@ namespace rmcs_dart_guidance::manager {
 class FillingLimitServoAction : public IAction {
 public:
     FillingLimitServoAction(
-        std::string name, rmcs_msgs::DartServoStatus& limiting_command,
-        rmcs_msgs::DartServoStatus trigger_command, rmcs_msgs::DartServoStatus lock_command,
+        std::string name, rmcs_msgs::DartServoCommand& limiting_command,
+        rmcs_msgs::DartServoCommand trigger_command, rmcs_msgs::DartServoCommand lock_command,
         uint64_t fill_ticks)
         : IAction(std::move(name))
         , limiting_command_(limiting_command)
@@ -35,9 +35,9 @@ public:
     void on_exit() override { limiting_command_ = lock_command_; }
 
 private:
-    rmcs_msgs::DartServoStatus& limiting_command_;
-    rmcs_msgs::DartServoStatus trigger_command_;
-    rmcs_msgs::DartServoStatus lock_command_;
+    rmcs_msgs::DartServoCommand& limiting_command_;
+    rmcs_msgs::DartServoCommand trigger_command_;
+    rmcs_msgs::DartServoCommand lock_command_;
     uint64_t fill_ticks_;
 };
 

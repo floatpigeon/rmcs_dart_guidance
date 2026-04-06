@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <string>
 
-#include <rmcs_msgs/dart_slider_status.hpp>
+#include <rmcs_msgs/dart_mechanism_command.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -19,24 +19,24 @@ public:
 
     BeltMoveAction(
         std::string name,   //
-        rmcs_msgs::DartMotorStatus& belt_command, //
-        double& belt_target_velocity,             //
-        double& belt_torque_limit,                //
-        double& belt_hold_torque,                 //
-        bool& belt_wait_zero_velocity,            //
-        const double& left_belt_velocity,         //
-        const double& right_belt_velocity,        //
-        const double& left_belt_torque,           //
-        const double& right_belt_torque,          //
-        rmcs_msgs::DartMotorStatus command,       //
-        double velocity,                          //
-        double torque_limit,                      //
-        double hold_torque,                       //
-        uint64_t timeout_ticks,                   //
-        double stall_velocity_threshold = 1.0,    //
-        double stall_torque_threshold = 0.5,      //
-        uint64_t stall_confirm_ticks = 20,        //
-        uint64_t min_running_ticks = 50,          //
+        rmcs_msgs::DartMechanismCommand& belt_command, //
+        double& belt_target_velocity,                  //
+        double& belt_torque_limit,                     //
+        double& belt_hold_torque,                      //
+        bool& belt_wait_zero_velocity,                 //
+        const double& left_belt_velocity,              //
+        const double& right_belt_velocity,             //
+        const double& left_belt_torque,                //
+        const double& right_belt_torque,               //
+        rmcs_msgs::DartMechanismCommand command,       //
+        double velocity,                               //
+        double torque_limit,                           //
+        double hold_torque,                            //
+        uint64_t timeout_ticks,                        //
+        double stall_velocity_threshold = 1.0,         //
+        double stall_torque_threshold = 0.5,           //
+        uint64_t stall_confirm_ticks = 20,             //
+        uint64_t min_running_ticks = 50,               //
         ExitMode exit_mode = ExitMode::WAIT_HOLD_TORQUE)
         : IAction(std::move(name))
         , belt_command_(belt_command)
@@ -91,7 +91,7 @@ public:
     }
 
     void on_exit() override {
-        belt_command_ = rmcs_msgs::DartMotorStatus::WAIT;
+        belt_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         belt_target_velocity_ = 0.0;
 
         if (exit_mode_ == ExitMode::WAIT_ZERO_VELOCITY) {
@@ -105,7 +105,7 @@ public:
     }
 
 private:
-    rmcs_msgs::DartMotorStatus& belt_command_;
+    rmcs_msgs::DartMechanismCommand& belt_command_;
     double& belt_target_velocity_;
     double& belt_torque_limit_;
     double& belt_hold_torque_;
@@ -115,7 +115,7 @@ private:
     const double& left_belt_torque_;
     const double& right_belt_torque_;
 
-    rmcs_msgs::DartMotorStatus command_;
+    rmcs_msgs::DartMechanismCommand command_;
     double velocity_;
     double torque_limit_;
     double hold_torque_;

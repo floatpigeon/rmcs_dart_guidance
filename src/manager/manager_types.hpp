@@ -3,10 +3,8 @@
 #include <cstdint>
 #include <string>
 
-#include <eigen3/Eigen/Dense>
-
-#include <rmcs_msgs/dart_limiting_servo_status.hpp>
-#include <rmcs_msgs/dart_slider_status.hpp>
+#include <rmcs_msgs/dart_mechanism_command.hpp>
+#include <rmcs_msgs/dart_servo_command.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -16,17 +14,13 @@ enum class ManagerLifecycleState : uint8_t {
     ERROR = 2,
 };
 
-enum class ManagerTaskSlot : uint8_t {
-    PRIMARY = 0,
-    AUXILIARY_VISION = 1,
-};
-
-inline const char* to_string(ManagerTaskSlot slot) {
-    switch (slot) {
-    case ManagerTaskSlot::PRIMARY: return "primary";
-    case ManagerTaskSlot::AUXILIARY_VISION: return "auxiliary_vision";
+inline const char* to_string(ManagerLifecycleState state) {
+    switch (state) {
+    case ManagerLifecycleState::IDLE: return "IDLE";
+    case ManagerLifecycleState::RUNNING: return "RUNNING";
+    case ManagerLifecycleState::ERROR: return "ERROR";
     }
-    return "unknown";
+    return "UNKNOWN";
 }
 
 struct ManagerInputContext {
@@ -35,15 +29,12 @@ struct ManagerInputContext {
     const double& left_belt_torque;
     const double& right_belt_torque;
 
-    const Eigen::Vector2d& joystick_left;
-    const Eigen::Vector2d& joystick_right;
-
     const double& lifting_left_vel_fb;
     const double& lifting_right_vel_fb;
 };
 
 struct ManagerOutputContext {
-    rmcs_msgs::DartMotorStatus& belt_command;
+    rmcs_msgs::DartMechanismCommand& belt_command;
     double& belt_target_velocity;
     double& belt_torque_limit;
     double& belt_hold_torque;
@@ -51,16 +42,11 @@ struct ManagerOutputContext {
 
     bool& trigger_lock_enable;
 
-    Eigen::Vector2d& yaw_pitch_control_velocity;
-    double& force_control_velocity;
-
-    rmcs_msgs::DartMotorStatus& lifting_command;
-    rmcs_msgs::DartServoStatus& limiting_command;
+    rmcs_msgs::DartMechanismCommand& lifting_command;
+    rmcs_msgs::DartServoCommand& limiting_command;
 };
 
 struct ManagerSettings {
-    double max_transform_rate;
-    double manual_force_scale;
     uint64_t limiting_fill_ticks;
 
     double lifting_stall_threshold;
