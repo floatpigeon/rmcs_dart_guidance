@@ -24,11 +24,13 @@ find_package(OpenVINO REQUIRED)
 find_package(Ceres REQUIRED)
 
 find_package(rosidl_typesupport_cpp REQUIRED)
+find_package(pluginlib REQUIRED)
 
 find_package(rmcs_executor REQUIRED)
 find_package(rmcs_description REQUIRED)
 find_package(fast_tf REQUIRED)
 find_package(hikcamera REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 set(RMCS_MSGS_SOURCE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/../rmcs_msgs/include")
 
@@ -78,6 +80,7 @@ ament_target_dependencies(${PROJECT_NAME}
   geometry_msgs
   visualization_msgs
   rosidl_typesupport_cpp
+  pluginlib
 )
 
 target_link_libraries(
@@ -97,6 +100,7 @@ target_link_libraries(
   ${rmcs_description_LIBRARIES}
   ${fast_tf_LIBRARIES}
   ${hikcamera_LIBRARIES}
+  OpenSSL::Crypto
 )
 
 add_executable(dart_manager_sim_node ${SIM_NODE_SOURCE})
@@ -115,7 +119,6 @@ install(
     lib/
 )
 
-find_package(pluginlib REQUIRED)
 pluginlib_export_plugin_description_file(
   rmcs_executor plugins.xml
 )

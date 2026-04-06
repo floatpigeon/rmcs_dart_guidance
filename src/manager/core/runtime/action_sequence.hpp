@@ -93,6 +93,15 @@ public:
 
     std::size_t cursor() const { return cursor_; }
 
+    std::string current_action_name() const {
+        if (cursor_ >= actions_.size()) {
+            return {};
+        }
+
+        const auto& action_ptr = actions_[cursor_];
+        return action_ptr ? action_ptr->name() : std::string{};
+    }
+
 private:
     void cancel_active_child(ActionCancelReason reason) {
         if (cursor_ < actions_.size()) {

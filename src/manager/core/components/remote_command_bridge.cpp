@@ -37,15 +37,26 @@ public:
         RCLCPP_INFO(logger_, "[RemoteCommandBridge] initialized");
     }
 
+    void before_updating() override {
+        if (!switch_left_.ready()) {
+            switch_left_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/switch/left\". Set to UNKNOWN.");
+        }
+        if (!switch_right_.ready()) {
+            switch_right_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/switch/right\". Set to UNKNOWN.");
+        }
+    }
+
     void update() override {
         using namespace rmcs_msgs;
+
+        emit_command("");
 
         const auto left = *switch_left_;
         const auto right = *switch_right_;
         const bool toggle_triggered = detect_toggle(left, right);
         const bool recover_triggered = detect_recover(left, right) && !toggle_triggered;
-
-        emit_command("");
 
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");

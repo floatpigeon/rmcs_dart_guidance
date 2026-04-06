@@ -1,9 +1,11 @@
 #include "manager/core/runtime/task.hpp"
+#include "manager/gui_bridge_json_utils.hpp"
 #include "manager/resources/task_factory.hpp"
 
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <sstream>
 #include <string>
 
 #include <rclcpp/logger.hpp>
@@ -31,6 +33,7 @@ public:
         register_input("/dart/lifting_right/velocity", lifting_right_velocity_);
 
         register_input("/dart/manager/command", remote_command_input_, false);
+        register_input("/dart/manager/gui_command", gui_command_input_, false);
 
         register_output(
             "/dart/manager/belt/command", belt_command_, rmcs_msgs::DartMechanismCommand::WAIT);
@@ -50,6 +53,10 @@ public:
             std::string{to_string(ManagerLifecycleState::IDLE)});
         register_output(
             "/dart/manager/debug/current_task", debug_current_task_output_, std::string{});
+        register_output("/dart/manager/debug/current_action", debug_current_action_output_, std::string{});
+        register_output("/dart/manager/debug/queue_json", debug_queue_json_output_, std::string{"[]"});
+        register_output(
+            "/dart/manager/debug/last_error_json", debug_last_error_json_output_, std::string{});
 
         limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
         lifting_stall_threshold_ = get_parameter("lifting_stall_threshold").as_double();
@@ -61,13 +68,27 @@ public:
             (uint64_t)get_parameter("lifting_stall_timeout_ticks").as_int();
 
         reset_fire_count();
+        sync_debug_outputs();
+        RCLCPP_INFO(logger_, "[DartManager] initialized");
+    }
+
+    void before_updating() override {
+        if (!remote_command_input_.ready()) {
+            remote_command_input_.make_and_bind_directly(std::string{});
+            RCLCPP_WARN(logger_, "Failed to fetch \"/dart/manager/command\". Set to empty string.");
+        }
+        if (!gui_command_input_.ready()) {
+            gui_command_input_.make_and_bind_directly(std::string{});
+            RCLCPP_WARN(
+                logger_, "Failed to fetch \"/dart/manager/gui_command\". Set to empty string.");
+        }
 
         auto input = input_context();
         auto output = output_context();
         auto manager_settings = settings();
         submit_task(make_slider_init_task(input, output, manager_settings));
         sync_debug_outputs();
-        RCLCPP_INFO(logger_, "[DartManager] initialized, queued SliderInitTask on startup");
+        RCLCPP_INFO(logger_, "[DartManager] queued SliderInitTask on startup");
     }
 
     void update() override {
@@ -111,7 +132,10 @@ private:
     };
 
     void poll_command() {
-        std::string cmd = *remote_command_input_;
+        const std::string remote_cmd =
+            remote_command_input_.ready() ? *remote_command_input_ : std::string{};
+        const std::string gui_cmd = gui_command_input_.ready() ? *gui_command_input_ : std::string{};
+        const std::string& cmd = remote_cmd.empty() ? gui_cmd : remote_cmd;
 
         if (cmd.empty()) {
             runtime_state_.last_command.clear();
@@ -160,6 +184,7 @@ private:
             transition_to(ManagerLifecycleState::IDLE);
         }
 
+        last_error_json_.clear();
         reset_fire_count();
         *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
 
@@ -232,6 +257,9 @@ private:
                 "[DartManager] task '%s' FAILURE at action '%s' reason='%s' -> state=ERROR",
                 task_state_.current_task->name().c_str(), failed_action.c_str(),
                 to_string(failure.reason));
+            last_error_json_ = build_last_error_json(
+                task_state_.current_task->name(), failed_action, failure.reason,
+                task_state_.current_task->description());
             on_task_failure();
         }
 
@@ -283,9 +311,59 @@ private:
         return task_state_.current_task ? task_state_.current_task->name() : std::string{};
     }
 
+    std::string active_action_name() const {
+        if (!task_state_.current_task) {
+            return {};
+        }
+
+        return task_state_.current_task->current_action_name();
+    }
+
+    std::string build_queue_json() const {
+        std::ostringstream builder;
+        builder << '[';
+
+        bool first = true;
+        for (const auto& task : task_state_.task_queue) {
+            if (!task) {
+                continue;
+            }
+
+            if (!first) {
+                builder << ',';
+            }
+
+            const std::string display_name = task->description().empty() ? task->name() : task->description();
+            builder << "{\"task_name\":\"" << escape_json_string(task->name()) << '"'
+                    << ",\"display_name\":\"" << escape_json_string(display_name) << '"'
+                    << ",\"status\":\"queued\"}";
+            first = false;
+        }
+
+        builder << ']';
+        return builder.str();
+    }
+
+    static std::string build_last_error_json(
+        const std::string& task_name, const std::string& action_name, ActionFailureReason reason,
+        const std::string& description) {
+        const std::string message = (description.empty() ? task_name : description) + "执行失败";
+
+        std::ostringstream builder;
+        builder << "{\"task_name\":\"" << escape_json_string(task_name) << '"'
+                << ",\"action_name\":\"" << escape_json_string(action_name) << '"'
+                << ",\"reason\":\"" << escape_json_string(to_string(reason)) << '"'
+                << ",\"message\":\"" << escape_json_string(message) << '"'
+                << ",\"timestamp_ms\":" << current_system_timestamp_ms() << '}';
+        return builder.str();
+    }
+
     void sync_debug_outputs() {
         *debug_lifecycle_state_output_ = to_string(runtime_state_.lifecycle_state);
         *debug_current_task_output_ = active_task_name();
+        *debug_current_action_output_ = active_action_name();
+        *debug_queue_json_output_ = build_queue_json();
+        *debug_last_error_json_output_ = last_error_json_;
     }
 
     void reset_fire_count() {
@@ -331,6 +409,7 @@ private:
     InputInterface<double> lifting_left_velocity_;
     InputInterface<double> lifting_right_velocity_;
     InputInterface<std::string> remote_command_input_;
+    InputInterface<std::string> gui_command_input_;
 
     OutputInterface<rmcs_msgs::DartMechanismCommand> belt_command_;
     OutputInterface<double> belt_target_velocity_;
@@ -343,6 +422,9 @@ private:
     OutputInterface<uint32_t> fire_count_output_;
     OutputInterface<std::string> debug_lifecycle_state_output_;
     OutputInterface<std::string> debug_current_task_output_;
+    OutputInterface<std::string> debug_current_action_output_;
+    OutputInterface<std::string> debug_queue_json_output_;
+    OutputInterface<std::string> debug_last_error_json_output_;
 
     uint64_t limiting_fill_ticks_{500};
     double lifting_stall_threshold_{0.5};
@@ -352,6 +434,7 @@ private:
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};
+    std::string last_error_json_;
 };
 
 } // namespace rmcs_dart_guidance::manager
