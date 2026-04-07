@@ -58,7 +58,6 @@ struct ManagerSettings {
 struct ManagerRuntimeState {
     uint32_t fire_count{0};
     ManagerLifecycleState lifecycle_state{ManagerLifecycleState::IDLE};
-    std::string last_command;
 };
 
 } // namespace rmcs_dart_guidance::manager

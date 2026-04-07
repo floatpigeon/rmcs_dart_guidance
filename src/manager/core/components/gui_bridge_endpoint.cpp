@@ -1,5 +1,4 @@
-#include "manager/core/components/gui_bridge_command_port.hpp"
-#include "manager/core/components/gui_bridge_state_port.hpp"
+#include "manager/core/components/gui_bridge_ports.hpp"
 #include "manager/gui_bridge_json_utils.hpp"
 #include "manager/gui_bridge_runtime.hpp"
 
