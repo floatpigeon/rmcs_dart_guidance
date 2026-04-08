@@ -14,11 +14,11 @@
 
 namespace rmcs_dart_guidance::manager {
 
-class GuiBridgeCommandPort : public rmcs_executor::Component {
+class GuiCommandBridge : public rmcs_executor::Component {
 public:
-    explicit GuiBridgeCommandPort(std::shared_ptr<GuiBridgeRuntime> runtime)
+    explicit GuiCommandBridge(std::shared_ptr<GuiBridgeRuntime> runtime)
         : runtime_(std::move(runtime)) {
-        register_output("/dart/manager/gui_command", command_output_, std::string{});
+        register_output("/dart/source/gui_command", command_output_, std::string{});
     }
 
     void update() override {
@@ -31,12 +31,12 @@ public:
         std::string next_command;
         {
             std::scoped_lock lock(runtime_->command_mutex);
-            if (runtime_->pending_commands.empty()) {
+            if (runtime_->pending_gui_commands.empty()) {
                 return;
             }
 
-            next_command = std::move(runtime_->pending_commands.front());
-            runtime_->pending_commands.pop_front();
+            next_command = std::move(runtime_->pending_gui_commands.front());
+            runtime_->pending_gui_commands.pop_front();
         }
 
         *command_output_ = next_command;

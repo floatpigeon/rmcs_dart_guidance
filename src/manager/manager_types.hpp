@@ -2,9 +2,12 @@
 
 #include <cstdint>
 
+#include <eigen3/Eigen/Dense>
+
 #include "rmcs_msgs/dart_mechanism_command.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 #include "rmcs_msgs/dart_servo_command.hpp"
+#include "rmcs_msgs/switch.hpp"
 
 namespace rmcs_dart_guidance::manager {
 
@@ -30,6 +33,12 @@ struct ManagerInputContext {
     // lift
     const bool& lift_arrive_flag;
 
+    // manual control
+    const rmcs_msgs::Switch& remote_left_switch;
+    const rmcs_msgs::Switch& remote_right_switch;
+    const Eigen::Vector2d& remote_left_joystick;
+    const Eigen::Vector2d& remote_right_joystick;
+
     // trigger
 
     // limit servo
@@ -40,6 +49,8 @@ struct ManagerOutputContext {
     rmcs_msgs::DartMechanismCommand& belt_command;
     double& belt_target_velocity;
     rmcs_msgs::ExitMode& belt_exit_mode;
+    double& force_control_velocity;
+    Eigen::Vector2d& angle_control_vector;
 
     // lift
     rmcs_msgs::DartMechanismCommand& lifting_command;
@@ -57,6 +68,9 @@ struct ManagerSettings {
     // belt
     double belt_down_target_velocity;
     double belt_up_target_velocity;
+    double manual_belt_target_velocity;
+    double manual_force_target_velocity;
+    double manual_angle_target_velocity;
 
     // lift
     double lift_target_velocity;

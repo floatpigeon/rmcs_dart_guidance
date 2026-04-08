@@ -113,7 +113,7 @@ public:
         }
         bridge_port_ = static_cast<uint16_t>(listen_port);
 
-        create_partner_component<GuiBridgeCommandPort>("gui_bridge_command_port", runtime_);
+        create_partner_component<GuiCommandBridge>("gui_command_bridge", runtime_);
         create_partner_component<GuiBridgeStatePort>("gui_bridge_state_port", runtime_);
     }
 
@@ -419,7 +419,8 @@ private:
         }
 
         static const std::set<std::string> kSupportedCommands{
-            "slider_init", "launch_prepare", "launch_cancel", "fire_preload", "cancel", "recover",
+            "slider_init", "launch_prepare", "launch_cancel", "fire_preload", "manual_control",
+            "cancel", "recover",
         };
 
         if (!kSupportedCommands.contains(*command)) {
@@ -429,7 +430,7 @@ private:
 
         {
             std::scoped_lock lock(runtime_->command_mutex);
-            runtime_->pending_commands.push_back(*command);
+            runtime_->pending_gui_commands.push_back(*command);
         }
         send_ack(request_id, true, "");
     }

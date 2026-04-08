@@ -18,8 +18,7 @@ namespace rmcs_dart_guidance::manager {
 class DartManagerBridgeIo {
 public:
     void register_interfaces(rmcs_executor::Component& component) {
-        component.register_input("/dart/manager/command", remote_command_input_, false);
-        component.register_input("/dart/manager/gui_command", gui_command_input_, false);
+        component.register_input("/dart/manager/command", command_input_, false);
 
         component.register_output("/dart/manager/fire_count", fire_count_output_, uint32_t{0});
         component.register_output(
@@ -36,24 +35,14 @@ public:
     }
 
     void bind_optional_inputs(const rclcpp::Logger& logger) {
-        if (!remote_command_input_.ready()) {
-            remote_command_input_.make_and_bind_directly(std::string{});
+        if (!command_input_.ready()) {
+            command_input_.make_and_bind_directly(std::string{});
             RCLCPP_WARN(logger, "Failed to fetch \"/dart/manager/command\". Set to empty string.");
-        }
-
-        if (!gui_command_input_.ready()) {
-            gui_command_input_.make_and_bind_directly(std::string{});
-            RCLCPP_WARN(
-                logger, "Failed to fetch \"/dart/manager/gui_command\". Set to empty string.");
         }
     }
 
     std::string poll_command() {
-        const std::string remote_cmd =
-            remote_command_input_.ready() ? *remote_command_input_ : std::string{};
-        const std::string gui_cmd =
-            gui_command_input_.ready() ? *gui_command_input_ : std::string{};
-        const std::string& cmd = remote_cmd.empty() ? gui_cmd : remote_cmd;
+        const std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
 
         if (cmd.empty()) {
             last_command_.clear();
@@ -128,8 +117,7 @@ private:
         return builder.str();
     }
 
-    rmcs_executor::Component::InputInterface<std::string> remote_command_input_;
-    rmcs_executor::Component::InputInterface<std::string> gui_command_input_;
+    rmcs_executor::Component::InputInterface<std::string> command_input_;
 
     rmcs_executor::Component::OutputInterface<uint32_t> fire_count_output_;
     rmcs_executor::Component::OutputInterface<std::string> debug_lifecycle_state_output_;

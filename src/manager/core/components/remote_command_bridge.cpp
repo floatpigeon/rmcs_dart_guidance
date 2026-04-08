@@ -32,7 +32,7 @@ public:
         register_input("/remote/switch/left", switch_left_, false);
         register_input("/remote/switch/right", switch_right_, false);
 
-        register_output("/dart/manager/command", command_output_, std::string{});
+        register_output("/dart/source/remote_command", command_output_, std::string{});
 
         RCLCPP_INFO(logger_, "[RemoteCommandBridge] initialized");
     }

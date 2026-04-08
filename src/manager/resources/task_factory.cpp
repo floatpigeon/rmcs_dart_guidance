@@ -3,6 +3,7 @@
 #include "manager/resources/tasks/cancel_launch_task.hpp"
 #include "manager/resources/tasks/fire_and_preload_task.hpp"
 #include "manager/resources/tasks/launch_preparation_task.hpp"
+#include "manager/resources/tasks/manual_control_task.hpp"
 #include "manager/resources/tasks/slider_init_task.hpp"
 
 namespace rmcs_dart_guidance::manager {
@@ -26,6 +27,10 @@ std::shared_ptr<Task> make_task(
 
     if (cmd == "fire_preload" || cmd == "fire") {
         return std::make_shared<FireAndPreloadTask>(input, output, settings, runtime_state);
+    }
+
+    if (cmd == "manual_control" || cmd == "manual-control" || cmd == "manual") {
+        return std::make_shared<ManualControlTask>(input, output, settings);
     }
 
     return nullptr;

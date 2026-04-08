@@ -3,15 +3,19 @@
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
 
+#include <eigen3/Eigen/Dense>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
 #include <rmcs_executor/component.hpp>
+#include <rmcs_msgs/switch.hpp>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -34,6 +38,7 @@ public:
 
         belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
         belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
+        manual_belt_velocity_ = std::max(std::abs(belt_down_velocity_), std::abs(belt_up_velocity_));
 
         // lift
         register_output("/dart_manager/belt/command", belt_command_);
@@ -50,6 +55,16 @@ public:
         // limit servo
         register_output("/dart_manager/limit_servo/command", limiting_command_);
 
+        // manual control
+        register_input("/remote/switch/left", remote_left_switch_, false);
+        register_input("/remote/switch/right", remote_right_switch_, false);
+        register_input("/remote/joystick/left", remote_left_joystick_, false);
+        register_input("/remote/joystick/right", remote_right_joystick_, false);
+        register_output("/force/control/velocity", force_control_velocity_, 0.0);
+        register_output("/pitch/control/velocity", angle_control_vector_, Eigen::Vector2d::Zero());
+
+        manual_angle_velocity_ = get_parameter("max_transform_rate").as_double();
+        manual_force_velocity_ = get_parameter("manual_force_scale").as_double();
         limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
 
         bridge_io_.register_interfaces(*this);
@@ -61,6 +76,7 @@ public:
 
     void before_updating() override {
         bridge_io_.bind_optional_inputs(logger_);
+        bind_optional_manual_inputs();
 
         auto input = input_context();
         auto output = output_context();
@@ -109,6 +125,28 @@ private:
         std::deque<std::shared_ptr<Task>> task_queue;
         bool first_tick_of_task{true};
     };
+
+    void bind_optional_manual_inputs() {
+        if (!remote_left_switch_.ready()) {
+            remote_left_switch_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/switch/left\". Set to UNKNOWN.");
+        }
+
+        if (!remote_right_switch_.ready()) {
+            remote_right_switch_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/switch/right\". Set to UNKNOWN.");
+        }
+
+        if (!remote_left_joystick_.ready()) {
+            remote_left_joystick_.make_and_bind_directly(Eigen::Vector2d::Zero());
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/joystick/left\". Set to zero.");
+        }
+
+        if (!remote_right_joystick_.ready()) {
+            remote_right_joystick_.make_and_bind_directly(Eigen::Vector2d::Zero());
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/joystick/right\". Set to zero.");
+        }
+    }
 
     void poll_command() {
         const std::string cmd = bridge_io_.poll_command();
@@ -301,6 +339,10 @@ private:
         return ManagerInputContext{
             *belt_arrive_flag_,     //
             *lift_arrive_flag,      //
+            *remote_left_switch_,   //
+            *remote_right_switch_,  //
+            *remote_left_joystick_, //
+            *remote_right_joystick_ //
         };
     }
 
@@ -309,6 +351,8 @@ private:
             *belt_command_,         //
             *belt_target_velocity_, //
             *belt_exit_mode_,       //
+            *force_control_velocity_,
+            *angle_control_vector_, //
             *lifting_command_,      //
             *lift_target_velocity_, //
             *lift_exit_mode_,       //
@@ -321,6 +365,9 @@ private:
         return ManagerSettings{
             belt_down_velocity_,    //
             belt_up_velocity_,      //
+            manual_belt_velocity_,  //
+            manual_force_velocity_, //
+            manual_angle_velocity_, //
             lift_velocity_,         //
             limiting_fill_ticks_,   //
         };
@@ -346,6 +393,19 @@ private:
     InputInterface<bool> lift_arrive_flag;
 
     double lift_velocity_;
+
+    // manual control
+    InputInterface<rmcs_msgs::Switch> remote_left_switch_;
+    InputInterface<rmcs_msgs::Switch> remote_right_switch_;
+    InputInterface<Eigen::Vector2d> remote_left_joystick_;
+    InputInterface<Eigen::Vector2d> remote_right_joystick_;
+
+    OutputInterface<double> force_control_velocity_;
+    OutputInterface<Eigen::Vector2d> angle_control_vector_;
+
+    double manual_belt_velocity_;
+    double manual_force_velocity_;
+    double manual_angle_velocity_;
 
     // trigger
     OutputInterface<rmcs_msgs::DartServoCommand> trigger_command_;
