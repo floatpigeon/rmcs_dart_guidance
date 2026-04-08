@@ -1,6 +1,7 @@
 #pragma once
 
 #include "manager/core/runtime/action.hpp"
+#include "rmcs_msgs/dart_servo_command.hpp"
 
 #include <cstdint>
 #include <string>
@@ -10,13 +11,17 @@ namespace rmcs_dart_guidance::manager {
 class TriggerControlAction : public IAction {
 public:
     TriggerControlAction(
-        std::string name, bool& trigger_lock_enable, bool lock_enable, uint64_t settle_ticks = 50)
+        std::string name,                                             //
+        rmcs_msgs::DartServoCommand& trigger_servo_command_interface, //
+        rmcs_msgs::DartServoCommand trigger_servo_command,            //
+        uint64_t settle_ticks = 50                                    //
+        )
         : IAction(std::move(name))
-        , trigger_lock_enable_(trigger_lock_enable)
-        , lock_enable_(lock_enable)
+        , trigger_servo_command_output_interface_(trigger_servo_command_interface)
+        , trigger_servo_command_(trigger_servo_command)
         , settle_ticks_(settle_ticks) {}
 
-    void on_enter() override { trigger_lock_enable_ = lock_enable_; }
+    void on_enter() override { trigger_servo_command_output_interface_ = trigger_servo_command_; }
 
     ActionStatus update() override {
         if (elapsed_ticks() >= settle_ticks_) {
@@ -31,8 +36,8 @@ public:
     }
 
 private:
-    bool& trigger_lock_enable_;
-    bool lock_enable_;
+    rmcs_msgs::DartServoCommand& trigger_servo_command_output_interface_;
+    rmcs_msgs::DartServoCommand trigger_servo_command_;
     uint64_t settle_ticks_;
 };
 

@@ -1,6 +1,7 @@
 #include "manager/core/components/dart_manager_bridge_io.hpp"
 #include "manager/core/runtime/task.hpp"
 #include "manager/resources/task_factory.hpp"
+#include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
 #include <cstdint>
 #include <deque>
@@ -24,35 +25,34 @@ public:
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true))
         , logger_(get_logger()) {
 
-        register_input("/dart/drive_belt/left/velocity", belt_left_velocity_);
-        register_input("/dart/drive_belt/right/velocity", belt_right_velocity_);
-        register_input("/dart/drive_belt/left/torque", belt_left_torque_);
-        register_input("/dart/drive_belt/right/torque", belt_right_torque_);
-        register_input("/dart/lifting_left/velocity", lifting_left_velocity_);
-        register_input("/dart/lifting_right/velocity", lifting_right_velocity_);
+        // belt
+        register_output("/dart_manager/belt/command", belt_command_);
+        register_output("/dart_manager/belt/target_velocity", belt_target_velocity_);
+        register_output("/dart_manager/belt/exit_mode", belt_exit_mode_);
 
-        register_output(
-            "/dart/manager/belt/command", belt_command_, rmcs_msgs::DartMechanismCommand::WAIT);
-        register_output("/dart/manager/belt/target_velocity", belt_target_velocity_, 0.0);
-        register_output("/dart/manager/belt/torque_limit", belt_torque_limit_, 0.0);
-        register_output("/dart/manager/belt/hold_torque", belt_hold_torque_, 0.0);
-        register_output("/dart/manager/belt/wait_zero_velocity", belt_wait_zero_velocity_, false);
-        register_output("/dart/manager/trigger/lock_enable", trigger_lock_enable_, false);
-        register_output(
-            "/dart/manager/lifting/command", lifting_command_,
-            rmcs_msgs::DartMechanismCommand::WAIT);
-        register_output(
-            "/dart/manager/limiting/command", limiting_command_, rmcs_msgs::DartServoCommand::LOCK);
-        bridge_io_.register_interfaces(*this);
+        register_input("/dart_manager/belt/arrive_flag", belt_arrive_flag_);
+
+        belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
+        belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
+
+        // lift
+        register_output("/dart_manager/belt/command", belt_command_);
+        register_output("/dart_manager/belt/target_velocity", belt_target_velocity_);
+        register_output("/dart_manager/belt/exit_mode", belt_exit_mode_);
+
+        register_input("/dart_manager/belt/arrive_flag", belt_arrive_flag_);
+
+        lift_velocity_ = get_parameter("lift_velocity").as_double();
+
+        // trigger
+        register_output("/dart_manager/trigger/command", trigger_command_);
+
+        // limit servo
+        register_output("/dart_manager/limit_servo/command", limiting_command_);
 
         limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
-        lifting_stall_threshold_ = get_parameter("lifting_stall_threshold").as_double();
-        lifting_stall_confirm_ticks_ =
-            (uint64_t)get_parameter("lifting_stall_confirm_ticks").as_int();
-        lifting_stall_min_run_ticks_ =
-            (uint64_t)get_parameter("lifting_stall_min_run_ticks").as_int();
-        lifting_stall_timeout_ticks_ =
-            (uint64_t)get_parameter("lifting_stall_timeout_ticks").as_int();
+
+        bridge_io_.register_interfaces(*this);
 
         reset_fire_count();
         sync_debug_outputs();
@@ -252,8 +252,6 @@ private:
     void enter_belt_wait_zero_velocity_mode() {
         *belt_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         *belt_target_velocity_ = 0.0;
-        *belt_hold_torque_ = 0.0;
-        *belt_wait_zero_velocity_ = true;
     }
 
     static void reset_task_state(TaskState& task_state) {
@@ -301,54 +299,66 @@ private:
 
     ManagerInputContext input_context() {
         return ManagerInputContext{
-            *belt_left_velocity_, *belt_right_velocity_,   *belt_left_torque_,
-            *belt_right_torque_,  *lifting_left_velocity_, *lifting_right_velocity_,
+            *belt_arrive_flag_,     //
+            *lift_arrive_flag,      //
         };
     }
 
     ManagerOutputContext output_context() {
         return ManagerOutputContext{
-            *belt_command_,     *belt_target_velocity_,    *belt_torque_limit_,
-            *belt_hold_torque_, *belt_wait_zero_velocity_, *trigger_lock_enable_,
-            *lifting_command_,  *limiting_command_,
+            *belt_command_,         //
+            *belt_target_velocity_, //
+            *belt_exit_mode_,       //
+            *lifting_command_,      //
+            *lift_target_velocity_, //
+            *lift_exit_mode_,       //
+            *trigger_command_,      //
+            *limiting_command_,     //
         };
     }
 
     ManagerSettings settings() const {
         return ManagerSettings{
-            limiting_fill_ticks_,         lifting_stall_threshold_,
-            lifting_stall_confirm_ticks_, lifting_stall_min_run_ticks_,
-            lifting_stall_timeout_ticks_,
+            belt_down_velocity_,    //
+            belt_up_velocity_,      //
+            lift_velocity_,         //
+            limiting_fill_ticks_,   //
         };
     }
 
     rclcpp::Logger logger_;
 
-    InputInterface<double> belt_left_velocity_;
-    InputInterface<double> belt_right_velocity_;
-    InputInterface<double> belt_left_torque_;
-    InputInterface<double> belt_right_torque_;
-    InputInterface<double> lifting_left_velocity_;
-    InputInterface<double> lifting_right_velocity_;
-
+    // belt
     OutputInterface<rmcs_msgs::DartMechanismCommand> belt_command_;
     OutputInterface<double> belt_target_velocity_;
-    OutputInterface<double> belt_torque_limit_;
-    OutputInterface<double> belt_hold_torque_;
-    OutputInterface<bool> belt_wait_zero_velocity_;
-    OutputInterface<bool> trigger_lock_enable_;
-    OutputInterface<rmcs_msgs::DartMechanismCommand> lifting_command_;
-    OutputInterface<rmcs_msgs::DartServoCommand> limiting_command_;
-    DartManagerBridgeIo bridge_io_;
+    OutputInterface<rmcs_msgs::ExitMode> belt_exit_mode_;
 
-    uint64_t limiting_fill_ticks_{500};
-    double lifting_stall_threshold_{0.5};
-    uint64_t lifting_stall_confirm_ticks_{100};
-    uint64_t lifting_stall_min_run_ticks_{500};
-    uint64_t lifting_stall_timeout_ticks_{5000};
+    InputInterface<bool> belt_arrive_flag_;
+
+    double belt_down_velocity_;
+    double belt_up_velocity_;
+
+    // lift
+    OutputInterface<rmcs_msgs::DartMechanismCommand> lifting_command_;
+    OutputInterface<double> lift_target_velocity_;
+    OutputInterface<rmcs_msgs::ExitMode> lift_exit_mode_;
+
+    InputInterface<bool> lift_arrive_flag;
+
+    double lift_velocity_;
+
+    // trigger
+    OutputInterface<rmcs_msgs::DartServoCommand> trigger_command_;
+
+    // limit servo
+    OutputInterface<rmcs_msgs::DartServoCommand> limiting_command_;
+
+    uint64_t limiting_fill_ticks_;
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};
+
+    DartManagerBridgeIo bridge_io_;
 };
 
 } // namespace rmcs_dart_guidance::manager

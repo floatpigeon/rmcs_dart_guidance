@@ -12,11 +12,11 @@
 
 namespace rmcs_dart_guidance::manager {
 
-class FillingLiftAction : public IAction {
+class BeltControlAction : public IAction {
 public:
-    FillingLiftAction(
-        std::string name,
-        rmcs_msgs::DartMechanismCommand& lift_command_interface, //
+    BeltControlAction(
+        std::string name,                                        //
+        rmcs_msgs::DartMechanismCommand& belt_command_interface, //
         double& target_velocity_interface,                       //
         rmcs_msgs::ExitMode& exit_mode_interface,                //
         const bool& block_flag_interface,                        //
@@ -26,9 +26,9 @@ public:
         uint64_t timeout_ticks_setting                           //
         )
         : IAction(std::move(name))
-        , lift_command_output_interface_(lift_command_interface)
-        , lift_target_velocity_output_interface_(target_velocity_interface)
-        , lift_exit_mode_input_interface_(exit_mode_interface)
+        , belt_command_output_interface_(belt_command_interface)
+        , belt_target_velocity_output_interface_(target_velocity_interface)
+        , belt_exit_mode_input_interface_(exit_mode_interface)
         , block_flag_input_interface_(block_flag_interface)
         , command_(command_setting)
         , target_velocity_(velocity_setting)
@@ -36,13 +36,14 @@ public:
         , timeout_ticks_(timeout_ticks_setting) {}
 
     void on_enter() override {
-        lift_command_output_interface_ = command_;
-        lift_target_velocity_output_interface_ = target_velocity_;
+        belt_command_output_interface_ = command_;
+        belt_target_velocity_output_interface_ = target_velocity_;
     }
 
     ActionStatus update() override {
-        if (elapsed_ticks() >= timeout_ticks_)
+        if (elapsed_ticks() >= timeout_ticks_) {
             return fail(ActionFailureReason::TIMEOUT);
+        }
 
         if (block_flag_input_interface_) {
             return ActionStatus::SUCCESS;
@@ -52,15 +53,15 @@ public:
     }
 
     void on_exit() override {
-        lift_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        lift_target_velocity_output_interface_ = 0.0;
-        lift_exit_mode_input_interface_ = exit_mode_;
+        belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        belt_target_velocity_output_interface_ = 0.0;
+        belt_exit_mode_input_interface_ = exit_mode_;
     }
 
 private:
-    rmcs_msgs::DartMechanismCommand& lift_command_output_interface_;
-    double& lift_target_velocity_output_interface_;
-    rmcs_msgs::ExitMode& lift_exit_mode_input_interface_;
+    rmcs_msgs::DartMechanismCommand& belt_command_output_interface_;
+    double& belt_target_velocity_output_interface_;
+    rmcs_msgs::ExitMode& belt_exit_mode_input_interface_;
     const bool& block_flag_input_interface_;
 
     rmcs_msgs::DartMechanismCommand command_;

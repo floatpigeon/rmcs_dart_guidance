@@ -1,10 +1,10 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
-#include <rmcs_msgs/dart_mechanism_command.hpp>
-#include <rmcs_msgs/dart_servo_command.hpp>
+#include "rmcs_msgs/dart_mechanism_command.hpp"
+#include "rmcs_msgs/dart_motor_exit_mode.hpp"
+#include "rmcs_msgs/dart_servo_command.hpp"
 
 namespace rmcs_dart_guidance::manager {
 
@@ -24,35 +24,47 @@ inline const char* to_string(ManagerLifecycleState state) {
 }
 
 struct ManagerInputContext {
-    const double& left_belt_velocity;
-    const double& right_belt_velocity;
-    const double& left_belt_torque;
-    const double& right_belt_torque;
+    // belt
+    const bool& belt_arrive_flag;
 
-    const double& lifting_left_vel_fb;
-    const double& lifting_right_vel_fb;
+    // lift
+    const bool& lift_arrive_flag;
+
+    // trigger
+
+    // limit servo
 };
 
 struct ManagerOutputContext {
+    // belt
     rmcs_msgs::DartMechanismCommand& belt_command;
     double& belt_target_velocity;
-    double& belt_torque_limit;
-    double& belt_hold_torque;
-    bool& belt_wait_zero_velocity;
+    rmcs_msgs::ExitMode& belt_exit_mode;
 
-    bool& trigger_lock_enable;
-
+    // lift
     rmcs_msgs::DartMechanismCommand& lifting_command;
+    double& lift_target_velocity;
+    rmcs_msgs::ExitMode& lift_exit_mode;
+
+    // trigger
+    rmcs_msgs::DartServoCommand& trigger_command;
+
+    // limit servo
     rmcs_msgs::DartServoCommand& limiting_command;
 };
 
 struct ManagerSettings {
-    uint64_t limiting_fill_ticks;
+    // belt
+    double belt_down_target_velocity;
+    double belt_up_target_velocity;
 
-    double lifting_stall_threshold;
-    uint64_t lifting_stall_confirm_ticks;
-    uint64_t lifting_stall_min_run_ticks;
-    uint64_t lifting_stall_timeout_ticks;
+    // lift
+    double lift_target_velocity;
+
+    // trigger
+
+    // limit servo
+    uint64_t limiting_fill_ticks;
 };
 
 struct ManagerRuntimeState {

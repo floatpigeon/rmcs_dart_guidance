@@ -5,17 +5,19 @@
 #include <cstdint>
 #include <string>
 
-#include <rmcs_msgs/dart_servo_command.hpp>
+#include "rmcs_msgs/dart_servo_command.hpp"
 
 namespace rmcs_dart_guidance::manager {
 
-// 填装限位舵机动作：先下发 FREE 语义命令，等待 fill_ticks，再下发 LOCK。
 class FillingLimitServoAction : public IAction {
 public:
     FillingLimitServoAction(
-        std::string name, rmcs_msgs::DartServoCommand& limiting_command,
-        rmcs_msgs::DartServoCommand trigger_command, rmcs_msgs::DartServoCommand lock_command,
-        uint64_t fill_ticks)
+        std::string name,                              //
+        rmcs_msgs::DartServoCommand& limiting_command, //
+        rmcs_msgs::DartServoCommand trigger_command,   //
+        rmcs_msgs::DartServoCommand lock_command,      //
+        uint64_t fill_ticks                            //
+        )
         : IAction(std::move(name))
         , limiting_command_(limiting_command)
         , trigger_command_(trigger_command)
