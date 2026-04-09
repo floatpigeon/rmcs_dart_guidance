@@ -3,7 +3,6 @@
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -38,14 +37,14 @@ public:
 
         belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
         belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
-        manual_belt_velocity_ = std::max(std::abs(belt_down_velocity_), std::abs(belt_up_velocity_));
+        manual_belt_velocity_ = get_parameter("manual_max_velocity").as_double();
 
         // lift
-        register_output("/dart_manager/belt/command", belt_command_);
-        register_output("/dart_manager/belt/target_velocity", belt_target_velocity_);
-        register_output("/dart_manager/belt/exit_mode", belt_exit_mode_);
+        register_output("/dart_manager/lift/command", lift_command_);
+        register_output("/dart_manager/lift/target_velocity", lift_target_velocity_);
+        register_output("/dart_manager/lift/exit_mode", lift_exit_mode_);
 
-        register_input("/dart_manager/belt/arrive_flag", belt_arrive_flag_);
+        register_input("/dart_manager/lift/arrive_flag", lift_arrive_flag);
 
         lift_velocity_ = get_parameter("lift_velocity").as_double();
 
@@ -54,6 +53,12 @@ public:
 
         // limit servo
         register_output("/dart_manager/limit_servo/command", limiting_command_);
+
+        limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
+
+        // yaw pitch force
+        register_output("/dart_manager/force/error", force_error_);
+        register_output("/dart_manager/angle/error_vector", angle_error_vector_);
 
         // manual control
         register_input("/remote/switch/left", remote_left_switch_, false);
@@ -65,8 +70,8 @@ public:
 
         manual_angle_velocity_ = get_parameter("max_transform_rate").as_double();
         manual_force_velocity_ = get_parameter("manual_force_scale").as_double();
-        limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
 
+        // host io
         bridge_io_.register_interfaces(*this);
 
         reset_fire_count();
@@ -176,7 +181,7 @@ private:
     void cancel_all() {
         cancel_task_state(task_state_, ActionCancelReason::EXTERNAL_CANCEL);
         enter_belt_wait_zero_velocity_mode();
-        *lifting_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
 
         RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
@@ -281,7 +286,7 @@ private:
         reset_task_state(task_state_);
 
         enter_belt_wait_zero_velocity_mode();
-        *lifting_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
 
         transition_to(ManagerLifecycleState::ERROR);
@@ -353,7 +358,7 @@ private:
             *belt_exit_mode_,       //
             *force_control_velocity_,
             *angle_control_vector_, //
-            *lifting_command_,      //
+            *lift_command_,         //
             *lift_target_velocity_, //
             *lift_exit_mode_,       //
             *trigger_command_,      //
@@ -386,13 +391,25 @@ private:
     double belt_up_velocity_;
 
     // lift
-    OutputInterface<rmcs_msgs::DartMechanismCommand> lifting_command_;
+    OutputInterface<rmcs_msgs::DartMechanismCommand> lift_command_;
     OutputInterface<double> lift_target_velocity_;
     OutputInterface<rmcs_msgs::ExitMode> lift_exit_mode_;
 
     InputInterface<bool> lift_arrive_flag;
 
     double lift_velocity_;
+
+    // trigger
+    OutputInterface<rmcs_msgs::DartServoCommand> trigger_command_;
+
+    // limit servo
+    OutputInterface<rmcs_msgs::DartServoCommand> limiting_command_;
+
+    uint64_t limiting_fill_ticks_;
+
+    // yaw pitch force
+    OutputInterface<double> force_error_;
+    OutputInterface<Eigen::Vector2d> angle_error_vector_;
 
     // manual control
     InputInterface<rmcs_msgs::Switch> remote_left_switch_;
@@ -406,14 +423,6 @@ private:
     double manual_belt_velocity_;
     double manual_force_velocity_;
     double manual_angle_velocity_;
-
-    // trigger
-    OutputInterface<rmcs_msgs::DartServoCommand> trigger_command_;
-
-    // limit servo
-    OutputInterface<rmcs_msgs::DartServoCommand> limiting_command_;
-
-    uint64_t limiting_fill_ticks_;
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};
