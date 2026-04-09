@@ -10,13 +10,14 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
-#include <limits>
 #include <optional>
 #include <regex>
 #include <set>
@@ -148,8 +149,7 @@ public:
             if (exception.code().value() != EADDRINUSE || fail_on_bind_error_) {
                 RCLCPP_ERROR(
                     get_logger(), "[GuiBridgeEndpoint] failed to start ws://%s:%u/ws: %s",
-                    bridge_address_.c_str(), static_cast<unsigned>(bridge_port_),
-                    exception.what());
+                    bridge_address_.c_str(), static_cast<unsigned>(bridge_port_), exception.what());
                 throw;
             }
 
@@ -219,8 +219,7 @@ private:
         if (::inet_pton(AF_INET, bridge_address_.c_str(), &address.sin_addr) != 1) {
             close_socket(server_fd_);
             server_fd_ = -1;
-            throw std::runtime_error(
-                "Failed to parse gui bridge address: " + bridge_address_);
+            throw std::runtime_error("Failed to parse gui bridge address: " + bridge_address_);
         }
 
         if (::bind(server_fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -271,7 +270,7 @@ private:
         }
     }
 
-    bool perform_handshake(int client_fd) {
+    static bool perform_handshake(int client_fd) {
         std::string request;
         request.reserve(2048);
 
@@ -419,8 +418,8 @@ private:
         }
 
         static const std::set<std::string> kSupportedCommands{
-            "slider_init", "launch_prepare", "launch_cancel", "fire_preload", "manual_control",
-            "cancel", "recover",
+            "slider_init",    "launch_prepare", "launch_cancel", "fire_preload",
+            "manual_control", "cancel",         "recover",
         };
 
         if (!kSupportedCommands.contains(*command)) {
@@ -480,26 +479,30 @@ private:
     }
 
     static bool send_frame_locked(int client_fd, unsigned char opcode, const std::string& payload) {
-        std::vector<unsigned char> frame;
-        frame.reserve(payload.size() + 10);
-        frame.push_back(static_cast<unsigned char>(0x80U | (opcode & 0x0FU)));
+        std::array<unsigned char, 10> header{};
+        std::size_t header_size = 0;
 
+        header[header_size++] = static_cast<unsigned char>(0x80U | (opcode & 0x0FU));
         const uint64_t payload_size = payload.size();
         if (payload_size <= 125) {
-            frame.push_back(static_cast<unsigned char>(payload_size));
+            header[header_size++] = static_cast<unsigned char>(payload_size);
         } else if (payload_size <= 0xFFFF) {
-            frame.push_back(126);
-            frame.push_back(static_cast<unsigned char>((payload_size >> 8U) & 0xFFU));
-            frame.push_back(static_cast<unsigned char>(payload_size & 0xFFU));
+            header[header_size++] = 126;
+            header[header_size++] = static_cast<unsigned char>((payload_size >> 8U) & 0xFFU);
+            header[header_size++] = static_cast<unsigned char>(payload_size & 0xFFU);
         } else {
-            frame.push_back(127);
+            header[header_size++] = 127;
             for (int shift = 56; shift >= 0; shift -= 8) {
-                frame.push_back(static_cast<unsigned char>((payload_size >> shift) & 0xFFU));
+                header[header_size++] =
+                    static_cast<unsigned char>((payload_size >> shift) & 0xFFU);
             }
         }
 
-        frame.insert(frame.end(), payload.begin(), payload.end());
-        return send_all(client_fd, frame.data(), frame.size());
+        if (!send_all(client_fd, header.data(), header_size)) {
+            return false;
+        }
+
+        return payload.empty() || send_all(client_fd, payload.data(), payload.size());
     }
 
     void close_client_socket() {

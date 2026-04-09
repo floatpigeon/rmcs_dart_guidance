@@ -10,16 +10,16 @@ namespace rmcs_dart_guidance::manager {
 
 // RemoteCommandBridge
 //   将遥控器 DR16 的拨杆信号翻译为 DartManager 可识别的离散命令。
-//
-//   键位映射：
-//     ┌──────────────────┬──────────────────────────────────────────────────────┐
-//     │ 左拨杆  右拨杆   │ 功能                                               │
-//     ├──────────────────┼──────────────────────────────────────────────────────┤
-//     │ DOWN    DOWN     │ 全部停止 -> "cancel"                                │
-//     │ MIDDLE  MIDDLE   │ 初始状态 -> "recover"                               │
-//     │ MIDDLE  DOWN→MID │ 切换上膛/退膛 -> "launch_prepare" / "launch_cancel" │
-//     │ MIDDLE  UP       │ 处于上膛状态时发射 -> "fire_preload"                │
-//     └──────────────────┴──────────────────────────────────────────────────────┘
+
+/* 键位映射：
+    双下：全部停止 -> "cancel"
+    左拨杆 DOWN->MIDDLE：恢复 -> "recover"
+    左拨杆在中：
+        右拨杆 MIDDLE->DOWN：切换上膛/退膛 -> "launch_prepare" / "launch_cancel"
+        右拨杆 MIDDLE->UP：处于上膛状态时发射 -> "fire_preload"
+    左拨杆进入 UP：发一次手动控制 -> "manual_control"
+*/
+
 class RemoteCommandBridge
     : public rmcs_executor::Component
     , public rclcpp::Node {
@@ -55,42 +55,49 @@ public:
 
         const auto left = *switch_left_;
         const auto right = *switch_right_;
-        const bool toggle_triggered = detect_toggle(left, right);
-        const bool recover_triggered = detect_recover(left, right) && !toggle_triggered;
 
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");
             chambered_ = false;
+            RCLCPP_INFO(logger_, "[RemoteCommandBridge] cancel");
+            update_previous_switches(left, right);
+            return;
+        }
+
+        if (detect_enter_manual_control(left)) {
+            emit_command("manual_control");
+            RCLCPP_INFO(logger_, "[RemoteCommandBridge] enter manual_control");
+            update_previous_switches(left, right);
+            return;
+        }
+
+        if (detect_recover_transition(left)) {
+            emit_command("recover");
+            chambered_ = false;
+            RCLCPP_INFO(logger_, "[RemoteCommandBridge] recover");
             update_previous_switches(left, right);
             return;
         }
 
         if (left == Switch::MIDDLE) {
-            if (toggle_triggered) {
+            if (detect_prepare_toggle(left, right)) {
                 if (chambered_) {
                     emit_command("launch_cancel");
                     chambered_ = false;
-                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_cancel");
+                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] prepare toggle -> launch_cancel");
                 } else {
                     emit_command("launch_prepare");
                     chambered_ = true;
-                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] toggle -> launch_prepare");
+                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] prepare toggle -> launch_prepare");
                 }
                 update_previous_switches(left, right);
                 return;
             }
 
-            if (recover_triggered) {
-                emit_command("recover");
-                chambered_ = false;
-                update_previous_switches(left, right);
-                return;
-            }
-
-            if (chambered_ && right == Switch::UP) {
+            if (chambered_ && detect_fire_transition(left, right)) {
                 emit_command("fire_preload");
                 chambered_ = false;
-                RCLCPP_INFO(logger_, "[RemoteCommandBridge] fire_preload!");
+                RCLCPP_INFO(logger_, "[RemoteCommandBridge] fire_preload");
                 update_previous_switches(left, right);
                 return;
             }
@@ -102,18 +109,29 @@ public:
 private:
     void emit_command(const std::string& cmd) { *command_output_ = cmd; }
 
-    bool detect_toggle(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
-        return current_left == rmcs_msgs::Switch::MIDDLE
-            && prev_left_ == rmcs_msgs::Switch::MIDDLE
-            && prev_right_ == rmcs_msgs::Switch::DOWN
-            && current_right == rmcs_msgs::Switch::MIDDLE;
+    bool detect_enter_manual_control(rmcs_msgs::Switch current_left) const {
+        return current_left == rmcs_msgs::Switch::UP && prev_left_ != rmcs_msgs::Switch::UP;
     }
 
-    bool detect_recover(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
+    bool detect_recover_transition(rmcs_msgs::Switch current_left) const {
         return current_left == rmcs_msgs::Switch::MIDDLE
-            && current_right == rmcs_msgs::Switch::MIDDLE
-            && !(prev_left_ == rmcs_msgs::Switch::MIDDLE
-                 && prev_right_ == rmcs_msgs::Switch::MIDDLE);
+            && prev_left_ == rmcs_msgs::Switch::DOWN;
+    }
+
+    bool detect_prepare_toggle(
+        rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
+        return current_left == rmcs_msgs::Switch::MIDDLE
+            && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::MIDDLE
+            && current_right == rmcs_msgs::Switch::DOWN;
+    }
+
+    bool detect_fire_transition(
+        rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
+        return current_left == rmcs_msgs::Switch::MIDDLE
+            && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::MIDDLE
+            && current_right == rmcs_msgs::Switch::UP;
     }
 
     void update_previous_switches(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) {

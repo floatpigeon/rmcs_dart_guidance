@@ -42,7 +42,7 @@ public:
     }
 
     std::string poll_command() {
-        const std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
+        std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
 
         if (cmd.empty()) {
             last_command_.clear();
