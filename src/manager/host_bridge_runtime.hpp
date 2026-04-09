@@ -7,9 +7,9 @@
 
 namespace rmcs_dart_guidance::manager {
 
-struct GuiBridgeRuntime {
+struct HostBridgeRuntime {
     std::mutex command_mutex;
-    std::deque<std::string> pending_gui_commands;
+    std::deque<std::string> pending_host_commands;
 
     std::mutex state_mutex;
     std::string latest_snapshot_json;

@@ -1,6 +1,6 @@
-#include "manager/core/components/gui_bridge_ports.hpp"
-#include "manager/gui_bridge_json_utils.hpp"
-#include "manager/gui_bridge_runtime.hpp"
+#include "manager/core/components/host_bridge_ports.hpp"
+#include "manager/host_bridge_json_utils.hpp"
+#include "manager/host_bridge_runtime.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -94,13 +94,13 @@ bool send_all(int fd, const void* buffer, std::size_t size) {
 
 } // namespace
 
-class GuiBridgeEndpoint
+class HostBridgeEndpoint
     : public rmcs_executor::Component
     , public rclcpp::Node {
 public:
-    GuiBridgeEndpoint()
+    HostBridgeEndpoint()
         : Node(get_component_name())
-        , runtime_(std::make_shared<GuiBridgeRuntime>()) {
+        , runtime_(std::make_shared<HostBridgeRuntime>()) {
         bridge_enabled_ = declare_parameter<bool>("enabled", true);
         bridge_address_ =
             declare_parameter<std::string>("listen_address", std::string{kDefaultBridgeAddress});
@@ -110,15 +110,15 @@ public:
             declare_parameter<int64_t>("listen_port", static_cast<int64_t>(kDefaultBridgePort));
         if (listen_port <= 0 || listen_port > std::numeric_limits<uint16_t>::max()) {
             throw std::runtime_error(
-                "Invalid gui bridge listen_port: " + std::to_string(listen_port));
+                "Invalid host bridge listen_port: " + std::to_string(listen_port));
         }
         bridge_port_ = static_cast<uint16_t>(listen_port);
 
-        create_partner_component<GuiCommandBridge>("gui_command_bridge", runtime_);
-        create_partner_component<GuiBridgeStatePort>("gui_bridge_state_port", runtime_);
+        create_partner_component<HostCommandBridge>("host_command_bridge", runtime_);
+        create_partner_component<HostBridgeStatePort>("host_bridge_state_port", runtime_);
     }
 
-    ~GuiBridgeEndpoint() override {
+    ~HostBridgeEndpoint() override {
         running_ = false;
         close_socket(server_fd_);
         close_client_socket();
@@ -135,7 +135,7 @@ public:
 
         server_start_attempted_ = true;
         if (!bridge_enabled_) {
-            RCLCPP_INFO(get_logger(), "[GuiBridgeEndpoint] disabled by parameter");
+            RCLCPP_INFO(get_logger(), "[HostBridgeEndpoint] disabled by parameter");
             return;
         }
 
@@ -143,24 +143,24 @@ public:
             start_server();
             server_started_ = true;
             RCLCPP_INFO(
-                get_logger(), "[GuiBridgeEndpoint] listening on ws://%s:%u/ws",
+                get_logger(), "[HostBridgeEndpoint] listening on ws://%s:%u/ws",
                 bridge_address_.c_str(), static_cast<unsigned>(bridge_port_));
         } catch (const std::system_error& exception) {
             if (exception.code().value() != EADDRINUSE || fail_on_bind_error_) {
                 RCLCPP_ERROR(
-                    get_logger(), "[GuiBridgeEndpoint] failed to start ws://%s:%u/ws: %s",
+                    get_logger(), "[HostBridgeEndpoint] failed to start ws://%s:%u/ws: %s",
                     bridge_address_.c_str(), static_cast<unsigned>(bridge_port_), exception.what());
                 throw;
             }
 
             RCLCPP_ERROR(
                 get_logger(),
-                "[GuiBridgeEndpoint] failed to start ws://%s:%u/ws: %s. GUI bridge will stay "
+                "[HostBridgeEndpoint] failed to start ws://%s:%u/ws: %s. Host bridge will stay "
                 "disabled for this executor.",
                 bridge_address_.c_str(), static_cast<unsigned>(bridge_port_), exception.what());
         } catch (const std::exception& exception) {
             RCLCPP_ERROR(
-                get_logger(), "[GuiBridgeEndpoint] failed to start ws://%s:%u/ws: %s",
+                get_logger(), "[HostBridgeEndpoint] failed to start ws://%s:%u/ws: %s",
                 bridge_address_.c_str(), static_cast<unsigned>(bridge_port_), exception.what());
             throw;
         }
@@ -195,7 +195,7 @@ private:
     [[noreturn]] void throw_socket_error(const char* operation, int err) const {
         throw std::system_error(
             err, std::generic_category(),
-            std::string("Failed to ") + operation + " gui bridge socket (" + bridge_address_ + ":"
+            std::string("Failed to ") + operation + " host bridge socket (" + bridge_address_ + ":"
                 + std::to_string(bridge_port_) + ")");
     }
 
@@ -219,7 +219,7 @@ private:
         if (::inet_pton(AF_INET, bridge_address_.c_str(), &address.sin_addr) != 1) {
             close_socket(server_fd_);
             server_fd_ = -1;
-            throw std::runtime_error("Failed to parse gui bridge address: " + bridge_address_);
+            throw std::runtime_error("Failed to parse host bridge address: " + bridge_address_);
         }
 
         if (::bind(server_fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -248,7 +248,7 @@ private:
             if (accepted_fd < 0) {
                 if (running_ && errno != EBADF && errno != EINVAL) {
                     RCLCPP_WARN(
-                        get_logger(), "[GuiBridgeEndpoint] accept failed: %s",
+                        get_logger(), "[HostBridgeEndpoint] accept failed: %s",
                         std::strerror(errno));
                 }
                 continue;
@@ -429,7 +429,7 @@ private:
 
         {
             std::scoped_lock lock(runtime_->command_mutex);
-            runtime_->pending_gui_commands.push_back(*command);
+            runtime_->pending_host_commands.push_back(*command);
         }
         send_ack(request_id, true, "");
     }
@@ -518,7 +518,7 @@ private:
         }
     }
 
-    std::shared_ptr<GuiBridgeRuntime> runtime_;
+    std::shared_ptr<HostBridgeRuntime> runtime_;
 
     std::thread server_thread_;
     std::atomic<bool> running_{true};
@@ -539,4 +539,4 @@ private:
 } // namespace rmcs_dart_guidance::manager
 
 #include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(rmcs_dart_guidance::manager::GuiBridgeEndpoint, rmcs_executor::Component)
+PLUGINLIB_EXPORT_CLASS(rmcs_dart_guidance::manager::HostBridgeEndpoint, rmcs_executor::Component)

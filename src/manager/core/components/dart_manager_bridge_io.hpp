@@ -1,7 +1,7 @@
 #pragma once
 
 #include "manager/core/runtime/task.hpp"
-#include "manager/gui_bridge_json_utils.hpp"
+#include "manager/host_bridge_json_utils.hpp"
 #include "manager/manager_types.hpp"
 
 #include <deque>

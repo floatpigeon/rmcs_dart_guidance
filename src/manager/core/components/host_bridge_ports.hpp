@@ -1,7 +1,7 @@
 #pragma once
 
-#include "manager/gui_bridge_json_utils.hpp"
-#include "manager/gui_bridge_runtime.hpp"
+#include "manager/host_bridge_json_utils.hpp"
+#include "manager/host_bridge_runtime.hpp"
 
 #include <chrono>
 #include <memory>
@@ -14,11 +14,11 @@
 
 namespace rmcs_dart_guidance::manager {
 
-class GuiCommandBridge : public rmcs_executor::Component {
+class HostCommandBridge : public rmcs_executor::Component {
 public:
-    explicit GuiCommandBridge(std::shared_ptr<GuiBridgeRuntime> runtime)
+    explicit HostCommandBridge(std::shared_ptr<HostBridgeRuntime> runtime)
         : runtime_(std::move(runtime)) {
-        register_output("/dart/source/gui_command", command_output_, std::string{});
+        register_output("/dart/source/host_command", command_output_, std::string{});
     }
 
     void update() override {
@@ -31,12 +31,12 @@ public:
         std::string next_command;
         {
             std::scoped_lock lock(runtime_->command_mutex);
-            if (runtime_->pending_gui_commands.empty()) {
+            if (runtime_->pending_host_commands.empty()) {
                 return;
             }
 
-            next_command = std::move(runtime_->pending_gui_commands.front());
-            runtime_->pending_gui_commands.pop_front();
+            next_command = std::move(runtime_->pending_host_commands.front());
+            runtime_->pending_host_commands.pop_front();
         }
 
         *command_output_ = next_command;
@@ -44,14 +44,14 @@ public:
     }
 
 private:
-    std::shared_ptr<GuiBridgeRuntime> runtime_;
+    std::shared_ptr<HostBridgeRuntime> runtime_;
     OutputInterface<std::string> command_output_;
     bool clear_on_next_tick_{false};
 };
 
-class GuiBridgeStatePort : public rmcs_executor::Component {
+class HostBridgeStatePort : public rmcs_executor::Component {
 public:
-    explicit GuiBridgeStatePort(std::shared_ptr<GuiBridgeRuntime> runtime)
+    explicit HostBridgeStatePort(std::shared_ptr<HostBridgeRuntime> runtime)
         : runtime_(std::move(runtime))
         , last_publish_time_(std::chrono::steady_clock::now()) {
         register_input("/dart/manager/debug/lifecycle_state", lifecycle_state_input_);
@@ -143,7 +143,7 @@ private:
         return "{\"type\":\"" + escape_json_string(type) + "\"," + inner + '}';
     }
 
-    std::shared_ptr<GuiBridgeRuntime> runtime_;
+    std::shared_ptr<HostBridgeRuntime> runtime_;
 
     InputInterface<std::string> lifecycle_state_input_;
     InputInterface<std::string> current_task_input_;
