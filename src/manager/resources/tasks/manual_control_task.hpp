@@ -25,10 +25,10 @@ public:
                 output.belt_command,                   // 同步带命令接口
                 output.belt_target_velocity,           // 同步带目标速度接口
                 output.belt_exit_mode,                 // 同步带退出模式接口
-                output.force_control_velocity,         // 力度控制速度接口
-                output.angle_control_vector,           // 姿态控制速度接口
-                settings.manual_angle_target_velocity, // 手动角度最大速度
-                settings.manual_force_target_velocity, // 手动力度最大速度
+                output.force_error,                    // 力度误差接口
+                output.angle_error_vector,             // 姿态误差接口
+                settings.manual_angle_max_error,       // 手动角度最大误差
+                settings.manual_force_max_error,       // 手动力度最大误差
                 settings.manual_belt_target_velocity   // 手动同步带最大速度
                 ));
     }

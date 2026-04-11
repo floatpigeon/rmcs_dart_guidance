@@ -15,6 +15,7 @@
 #include <rclcpp/node.hpp>
 #include <rmcs_executor/component.hpp>
 #include <rmcs_msgs/switch.hpp>
+#include <sys/types.h>
 
 namespace rmcs_dart_guidance::manager {
 
@@ -57,19 +58,26 @@ public:
         limiting_fill_ticks_ = (uint64_t)get_parameter("limiting_fill_ticks").as_int();
 
         // yaw pitch force
-        register_output("/dart_manager/force/error", force_error_);
-        register_output("/dart_manager/angle/error_vector", angle_error_vector_);
+        register_output("/dart_manager/force/error", force_error_, int32_t{0});
+        register_output(
+            "/dart_manager/angle/error_vector", angle_error_vector_, Eigen::Vector2d::Zero());
+
+        register_input("/force_sensor/channel_1/weight", force_sensor_ch1_);
+        register_input("/force_sensor/channel_2/weight", force_sensor_ch2_);
+
+        force_setpoint_ = static_cast<int32_t>(get_parameter("force_setpoint").as_int());
+        force_allowable_error_ =
+            static_cast<int32_t>(get_parameter("force_allowable_error").as_int());
 
         // manual control
         register_input("/remote/switch/left", remote_left_switch_, false);
         register_input("/remote/switch/right", remote_right_switch_, false);
         register_input("/remote/joystick/left", remote_left_joystick_, false);
         register_input("/remote/joystick/right", remote_right_joystick_, false);
-        register_output("/force/control/velocity", force_control_velocity_, 0.0);
-        register_output("/pitch/control/velocity", angle_control_vector_, Eigen::Vector2d::Zero());
 
-        manual_angle_velocity_ = get_parameter("max_transform_rate").as_double();
-        manual_force_velocity_ = get_parameter("manual_force_scale").as_double();
+        manual_angle_max_error_ = get_parameter("max_transform_rate").as_double();
+        manual_force_max_error_ =
+            static_cast<int32_t>(std::lround(get_parameter("manual_force_scale").as_double()));
 
         // host io
         bridge_io_.register_interfaces(*this);
@@ -342,39 +350,43 @@ private:
 
     ManagerInputContext input_context() {
         return ManagerInputContext{
-            *belt_arrive_flag_,     //
-            *lift_arrive_flag,      //
-            *remote_left_switch_,   //
-            *remote_right_switch_,  //
-            *remote_left_joystick_, //
-            *remote_right_joystick_ //
+            *belt_arrive_flag_,      //
+            *lift_arrive_flag,       //
+            *remote_left_switch_,    //
+            *remote_right_switch_,   //
+            *remote_left_joystick_,  //
+            *remote_right_joystick_, //
+            *force_sensor_ch1_,      //
+            *force_sensor_ch2_,      //
         };
     }
 
     ManagerOutputContext output_context() {
         return ManagerOutputContext{
-            *belt_command_,         //
-            *belt_target_velocity_, //
-            *belt_exit_mode_,       //
-            *force_control_velocity_,
-            *angle_control_vector_, //
-            *lift_command_,         //
-            *lift_target_velocity_, //
-            *lift_exit_mode_,       //
-            *trigger_command_,      //
-            *limiting_command_,     //
+            *belt_command_,          //
+            *belt_target_velocity_,  //
+            *belt_exit_mode_,        //
+            *lift_command_,          //
+            *lift_target_velocity_,  //
+            *lift_exit_mode_,        //
+            *trigger_command_,       //
+            *limiting_command_,      //
+            *force_error_,           //
+            *angle_error_vector_,    //
         };
     }
 
     ManagerSettings settings() const {
         return ManagerSettings{
-            belt_down_velocity_,    //
-            belt_up_velocity_,      //
-            manual_belt_velocity_,  //
-            manual_force_velocity_, //
-            manual_angle_velocity_, //
-            lift_velocity_,         //
-            limiting_fill_ticks_,   //
+            belt_down_velocity_,     //
+            belt_up_velocity_,       //
+            manual_belt_velocity_,   //
+            manual_force_max_error_, //
+            manual_angle_max_error_, //
+            lift_velocity_,          //
+            limiting_fill_ticks_,    //
+            force_setpoint_,         //
+            force_allowable_error_,  //
         };
     }
 
@@ -408,8 +420,14 @@ private:
     uint64_t limiting_fill_ticks_;
 
     // yaw pitch force
-    OutputInterface<double> force_error_;
+    OutputInterface<int32_t> force_error_;
     OutputInterface<Eigen::Vector2d> angle_error_vector_;
+
+    InputInterface<int32_t> force_sensor_ch1_;
+    InputInterface<int32_t> force_sensor_ch2_;
+
+    int32_t force_setpoint_;
+    int32_t force_allowable_error_;
 
     // manual control
     InputInterface<rmcs_msgs::Switch> remote_left_switch_;
@@ -417,12 +435,9 @@ private:
     InputInterface<Eigen::Vector2d> remote_left_joystick_;
     InputInterface<Eigen::Vector2d> remote_right_joystick_;
 
-    OutputInterface<double> force_control_velocity_;
-    OutputInterface<Eigen::Vector2d> angle_control_vector_;
-
     double manual_belt_velocity_;
-    double manual_force_velocity_;
-    double manual_angle_velocity_;
+    int32_t manual_force_max_error_;
+    double manual_angle_max_error_;
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};

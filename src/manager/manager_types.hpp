@@ -4,6 +4,7 @@
 
 #include <eigen3/Eigen/Dense>
 
+#include "Eigen/src/Core/Matrix.h"
 #include "rmcs_msgs/dart_mechanism_command.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 #include "rmcs_msgs/dart_servo_command.hpp"
@@ -42,6 +43,10 @@ struct ManagerInputContext {
     // trigger
 
     // limit servo
+
+    // yaw pitch force
+    const int32_t& force_sensor_ch1;
+    const int32_t& force_sensor_ch2;
 };
 
 struct ManagerOutputContext {
@@ -49,8 +54,6 @@ struct ManagerOutputContext {
     rmcs_msgs::DartMechanismCommand& belt_command;
     double& belt_target_velocity;
     rmcs_msgs::ExitMode& belt_exit_mode;
-    double& force_control_velocity;
-    Eigen::Vector2d& angle_control_vector;
 
     // lift
     rmcs_msgs::DartMechanismCommand& lifting_command;
@@ -62,6 +65,10 @@ struct ManagerOutputContext {
 
     // limit servo
     rmcs_msgs::DartServoCommand& limiting_command;
+
+    // yaw pitch force
+    int32_t& force_error;
+    Eigen::Vector2d& angle_error_vector;
 };
 
 struct ManagerSettings {
@@ -69,8 +76,8 @@ struct ManagerSettings {
     double belt_down_target_velocity;
     double belt_up_target_velocity;
     double manual_belt_target_velocity;
-    double manual_force_target_velocity;
-    double manual_angle_target_velocity;
+    int32_t manual_force_max_error;
+    double manual_angle_max_error;
 
     // lift
     double lift_target_velocity;
@@ -79,6 +86,10 @@ struct ManagerSettings {
 
     // limit servo
     uint64_t limiting_fill_ticks;
+
+    // yaw pitch force
+    int32_t force_setpoint;
+    int32_t force_allowable_error;
 };
 
 struct ManagerRuntimeState {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <limits>
 
 #include <eigen3/Eigen/Dense>
 #include <string>
@@ -23,10 +24,10 @@ public:
         rmcs_msgs::DartMechanismCommand& belt_command, //
         double& belt_target_velocity,                  //
         rmcs_msgs::ExitMode& belt_exit_mode,           //
-        double& force_error,                           //
+        int32_t& force_error,                          //
         Eigen::Vector2d& angle_error_vector,           //
-        double angle_max_velocity,                     //
-        double force_max_velocity,                     //
+        double angle_max_error,                        //
+        int32_t force_max_error,                       //
         double belt_max_velocity                       //
         )
         : IAction(std::move(name))
@@ -39,15 +40,15 @@ public:
         , belt_exit_mode_output_interface_(belt_exit_mode)
         , force_error_interface_(force_error)
         , angle_error_vector_output_interface_(angle_error_vector)
-        , angle_max_velocity_(angle_max_velocity)
-        , force_max_velocity_(force_max_velocity)
+        , angle_max_error_(angle_max_error)
+        , force_max_error_(force_max_error)
         , belt_max_velocity_(belt_max_velocity) {}
 
     void on_enter() override {
         belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
         belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
         belt_target_velocity_output_interface_ = 0.0;
-        force_error_interface_ = 0.0;
+        force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
     }
 
@@ -59,14 +60,14 @@ public:
         belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
         belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
         belt_target_velocity_output_interface_ = 0.0;
-        force_error_interface_ = 0.0;
+        force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
 
         if (remote_right_switch_ == rmcs_msgs::Switch::UP) {
-            Eigen::Vector2d angle_control_vector(
-                remote_left_joystic_.y() * angle_max_velocity_,
-                remote_right_joystic_.x() * angle_max_velocity_);
-            angle_error_vector_output_interface_ = angle_control_vector;
+            Eigen::Vector2d angle_error_vector(
+                remote_left_joystic_.y() * angle_max_error_,
+                remote_right_joystic_.x() * angle_max_error_);
+            angle_error_vector_output_interface_ = angle_error_vector;
 
         } else if (remote_right_switch_ == rmcs_msgs::Switch::MIDDLE) {
             const double belt_velocity = remote_left_joystic_.x() * belt_max_velocity_;
@@ -78,7 +79,8 @@ public:
                 belt_target_velocity_output_interface_ = std::abs(belt_velocity);
             }
 
-            force_error_interface_ = remote_right_joystic_.x() * force_max_velocity_;
+            const double raw_force_error = remote_right_joystic_.x() * force_max_error_;
+            force_error_interface_ = clamp_to_int32(std::lround(raw_force_error));
         }
 
         return ActionStatus::RUNNING;
@@ -88,11 +90,21 @@ public:
         belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
         belt_target_velocity_output_interface_ = 0.0;
         belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
-        force_error_interface_ = 0.0;
+        force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
     }
 
 private:
+    static int32_t clamp_to_int32(const long value) {
+        if (value > std::numeric_limits<int32_t>::max()) {
+            return std::numeric_limits<int32_t>::max();
+        }
+        if (value < std::numeric_limits<int32_t>::min()) {
+            return std::numeric_limits<int32_t>::min();
+        }
+        return static_cast<int32_t>(value);
+    }
+
     const rmcs_msgs::Switch& remote_left_switch_;
     const rmcs_msgs::Switch& remote_right_switch_;
     const Eigen::Vector2d& remote_left_joystic_;
@@ -101,11 +113,11 @@ private:
     rmcs_msgs::DartMechanismCommand& belt_command_output_interface_;
     double& belt_target_velocity_output_interface_;
     rmcs_msgs::ExitMode& belt_exit_mode_output_interface_;
-    double& force_error_interface_;
+    int32_t& force_error_interface_;
     Eigen::Vector2d& angle_error_vector_output_interface_;
 
-    double angle_max_velocity_;
-    double force_max_velocity_;
+    double angle_max_error_;
+    int32_t force_max_error_;
     double belt_max_velocity_;
 };
 } // namespace rmcs_dart_guidance::manager

@@ -1,11 +1,12 @@
 #pragma once
 
 #include "manager/core/runtime/action.hpp"
-#include "rmcs_msgs/dart_mechanism_command.hpp"
-#include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <limits>
 #include <string>
 
 #include <utility>
@@ -15,67 +16,61 @@ namespace rmcs_dart_guidance::manager {
 class ForceControlAction : public IAction {
 public:
     ForceControlAction(
-        std::string name,                                        //
-        rmcs_msgs::DartMechanismCommand& belt_command_interface, //
-        double& target_velocity_interface,                       //
-        double& force_feedback_ch1_interface,                    //
-        double& force_feedback_ch2_interface,                    //
-        rmcs_msgs::ExitMode& exit_mode_interface,                //
-        rmcs_msgs::DartMechanismCommand command_setting,         //
-        double allowable_error,                                  //
-        double force_setting,                                    //
-        rmcs_msgs::ExitMode exit_mode_setting,                   //
-        uint64_t timeout_ticks_setting                           //
+        std::string name,                           //
+        int32_t& force_error_interface,             //
+        const int32_t& force_feedback_ch1_interface, //
+        const int32_t& force_feedback_ch2_interface, //
+        int32_t force_setting,                      //
+        int32_t allowable_error,                    //
+        uint64_t timeout_ticks_setting              //
         )
         : IAction(std::move(name))
-        , force_command_output_interface_(belt_command_interface)
-        , force_error_output_interface_(target_velocity_interface)
-        , belt_exit_mode_output_interface_(exit_mode_interface)
+        , force_error_output_interface_(force_error_interface)
         , force_feedback_ch1_input_interface_(force_feedback_ch1_interface)
         , force_feedback_ch2_input_interface_(force_feedback_ch2_interface)
-        , command_(command_setting)
-        , allowable_error_(allowable_error)
         , target_force_(force_setting)
-        , exit_mode_(exit_mode_setting)
+        , allowable_error_(allowable_error)
         , timeout_ticks_(timeout_ticks_setting) {}
 
-    void on_enter() override {
-        force_command_output_interface_ = command_;
-        force_error_output_interface_ = target_force_;
-    }
+    void on_enter() override { force_error_output_interface_ = compute_force_error(); }
 
     ActionStatus update() override {
         if (elapsed_ticks() >= timeout_ticks_) {
             return fail(ActionFailureReason::TIMEOUT);
         }
 
-        double avg_force_feedback =
-            (force_feedback_ch1_input_interface_ + force_feedback_ch2_input_interface_) / 2;
-
-        if (abs(avg_force_feedback - target_force_) < allowable_error_) {
+        force_error_output_interface_ = compute_force_error();
+        if (std::llabs(static_cast<int64_t>(force_error_output_interface_))
+            < static_cast<int64_t>(allowable_error_)) {
             return ActionStatus::SUCCESS;
         }
 
         return ActionStatus::RUNNING;
     }
 
-    void on_exit() override {
-        force_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        force_error_output_interface_ = 0.0;
-        belt_exit_mode_output_interface_ = exit_mode_;
-    }
+    void on_exit() override { force_error_output_interface_ = 0; }
 
 private:
-    rmcs_msgs::DartMechanismCommand& force_command_output_interface_;
-    double& force_error_output_interface_;
-    rmcs_msgs::ExitMode& belt_exit_mode_output_interface_;
-    double& force_feedback_ch1_input_interface_;
-    double& force_feedback_ch2_input_interface_;
+    int32_t compute_force_error() const {
+        const int64_t avg_force_feedback =
+            (static_cast<int64_t>(force_feedback_ch1_input_interface_)
+             + static_cast<int64_t>(force_feedback_ch2_input_interface_))
+            / 2;
+        const int64_t force_error = static_cast<int64_t>(target_force_) - avg_force_feedback;
 
-    rmcs_msgs::DartMechanismCommand command_;
-    double allowable_error_;
-    double target_force_;
-    rmcs_msgs::ExitMode exit_mode_;
+        return static_cast<int32_t>(std::clamp(
+            force_error,
+            static_cast<int64_t>(std::numeric_limits<int32_t>::min()),
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max())));
+    }
+
+    int32_t& force_error_output_interface_;
+
+    const int32_t& force_feedback_ch1_input_interface_;
+    const int32_t& force_feedback_ch2_input_interface_;
+
+    int32_t target_force_;
+    int32_t allowable_error_;
     uint64_t timeout_ticks_;
 };
 

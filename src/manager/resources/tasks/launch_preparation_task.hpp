@@ -4,6 +4,7 @@
 #include "manager/manager_types.hpp"
 #include "manager/resources/actions/belt_control_action.hpp"
 #include "manager/resources/actions/filling_lift_action.hpp"
+#include "manager/resources/actions/force_control_action.hpp"
 #include "manager/resources/actions/trigger_control_action.hpp"
 #include "rmcs_msgs/dart_mechanism_command.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
@@ -74,6 +75,17 @@ public:
                 settings.belt_up_target_velocity,            // 同步带目标速度设置
                 rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY,     // 电机退出模式设置
                 20000                                        // 超时时间 ms
+                ));
+
+        then(
+            std::make_shared<ForceControlAction>(
+                "force_close_loop",                          //
+                output.force_error,                          //
+                input.force_sensor_ch1,                      //
+                input.force_sensor_ch2,                      //
+                settings.force_setpoint,                     //
+                settings.force_allowable_error,              //
+                20000                                        //
                 ));
     }
 };
