@@ -14,10 +14,4 @@
   <class type="rmcs_dart_guidance::manager::DartManager" base_class_type="rmcs_executor::Component">
     <description>Dart task manager: 4-shot group counting with lifting and limiting servo control.</description>
   </class>
-  <class type="rmcs_dart_guidance::manager::sim::DartManagerSimCommandBridge" base_class_type="rmcs_executor::Component">
-    <description>Publishes DartManager command outputs onto the ROS2 sim bus.</description>
-  </class>
-  <class type="rmcs_dart_guidance::manager::sim::DartManagerSimFeedbackBridge" base_class_type="rmcs_executor::Component">
-    <description>Consumes ROS2 sim bus feedback and writes it back into RMCS interfaces.</description>
-  </class>
 </library>

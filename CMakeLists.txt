@@ -58,12 +58,6 @@ file(GLOB_RECURSE PROJECT_SOURCE
   ${PROJECT_SOURCE_DIR}/test/*.cc
 )
 
-set(SIM_NODE_SOURCE
-  ${PROJECT_SOURCE_DIR}/test/manager/sim/dart_manager_sim_node.cpp
-)
-
-list(REMOVE_ITEM PROJECT_SOURCE ${SIM_NODE_SOURCE})
-
 add_library(
   ${PROJECT_NAME} SHARED
   ${PROJECT_SOURCE}
@@ -100,18 +94,9 @@ target_link_libraries(
   ${hikcamera_LIBRARIES}
 )
 
-add_executable(dart_manager_sim_node ${SIM_NODE_SOURCE})
-ament_target_dependencies(dart_manager_sim_node
-  rclcpp
-  rmcs_msgs
-  std_msgs
-)
-target_link_libraries(dart_manager_sim_node ${PROJECT_NAME})
-
 install(
   TARGETS 
     ${PROJECT_NAME}
-    dart_manager_sim_node
   DESTINATION 
     lib/
 )
