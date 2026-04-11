@@ -54,7 +54,15 @@ src/manager/
 - **错误 (`ERROR`)**：暂停调度，等待外部发送 `recover` 命令。
 
 ### 3. 命令处理
-外部组件可以通过写入 `/dart/manager/command` 接口发送指令（字符串格式）。
+当前阶段 `DartManager` 只接收遥控器命令，命令由 `RemoteCommandBridge` 直接写入 `/dart/manager/command`。
+
+遥控器映射如下：
+- 双下：`cancel`
+- 左拨杆 `DOWN -> MIDDLE`：`recover`
+- 左拨杆进入 `UP`：`manual_control`
+- 左拨杆保持 `MIDDLE` 且右拨杆 `MIDDLE -> DOWN`：`launch_prepare` / `launch_cancel`
+- 左拨杆保持 `MIDDLE` 且右拨杆 `MIDDLE -> UP`：`fire_preload`
+
 内置保留命令包括：
 - `cancel`：取消当前任务并清空任务队列。
 - `recover`：从 `ERROR` 状态恢复到 `IDLE`。

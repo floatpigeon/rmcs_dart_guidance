@@ -79,7 +79,7 @@ public:
         manual_force_max_error_ =
             static_cast<int32_t>(std::lround(get_parameter("manual_force_scale").as_double()));
 
-        // host io
+        // command/debug io
         bridge_io_.register_interfaces(*this);
 
         reset_fire_count();

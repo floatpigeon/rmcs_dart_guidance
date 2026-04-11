@@ -30,8 +30,6 @@ find_package(rmcs_executor REQUIRED)
 find_package(rmcs_description REQUIRED)
 find_package(fast_tf REQUIRED)
 find_package(hikcamera REQUIRED)
-find_package(OpenSSL REQUIRED)
-
 set(RMCS_MSGS_SOURCE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/../rmcs_msgs/include")
 
 include_directories(
@@ -100,7 +98,6 @@ target_link_libraries(
   ${rmcs_description_LIBRARIES}
   ${fast_tf_LIBRARIES}
   ${hikcamera_LIBRARIES}
-  OpenSSL::Crypto
 )
 
 add_executable(dart_manager_sim_node ${SIM_NODE_SOURCE})
