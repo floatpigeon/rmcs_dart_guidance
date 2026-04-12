@@ -1,5 +1,4 @@
 #include "manager/core/runtime/task.hpp"
-#include "manager/external_control/dart_manager_bridge_io.hpp"
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
@@ -94,7 +93,15 @@ public:
             static_cast<int32_t>(std::lround(get_parameter("manual_force_scale").as_double()));
 
         // command/debug io
-        bridge_io_.register_interfaces(*this);
+        register_input("/dart/manager/command", command_input_, false);
+        register_output("/dart/manager/fire_count", fire_count_output_, uint32_t{0});
+        register_output(
+            "/dart/manager/debug/lifecycle_state", debug_lifecycle_state_output_,
+            std::string{to_string(ManagerLifecycleState::IDLE)});
+        register_output(
+            "/dart/manager/debug/current_task", debug_current_task_output_, std::string{});
+        register_output(
+            "/dart/manager/debug/current_action", debug_current_action_output_, std::string{});
 
         reset_fire_count();
         sync_debug_outputs();
@@ -102,7 +109,7 @@ public:
     }
 
     void before_updating() override {
-        bridge_io_.bind_optional_inputs(logger_);
+        bind_optional_command_input();
         bind_optional_manual_inputs();
 
         auto input = input_context();
@@ -153,6 +160,13 @@ private:
         bool first_tick_of_task{true};
     };
 
+    void bind_optional_command_input() {
+        if (!command_input_.ready()) {
+            command_input_.make_and_bind_directly(std::string{});
+            RCLCPP_WARN(logger_, "Failed to fetch \"/dart/manager/command\". Set to empty string.");
+        }
+    }
+
     void bind_optional_manual_inputs() {
         if (!remote_left_switch_.ready()) {
             remote_left_switch_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
@@ -176,7 +190,7 @@ private:
     }
 
     void poll_command() {
-        const std::string cmd = bridge_io_.poll_command();
+        const std::string cmd = poll_new_command();
         if (cmd.empty()) {
             return;
         }
@@ -200,6 +214,22 @@ private:
         }
     }
 
+    std::string poll_new_command() {
+        std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
+
+        if (cmd.empty()) {
+            last_command_.clear();
+            return {};
+        }
+
+        if (cmd == last_command_) {
+            return {};
+        }
+
+        last_command_ = cmd;
+        return cmd;
+    }
+
     void cancel_all() {
         cancel_task_state(task_state_, ActionCancelReason::EXTERNAL_CANCEL);
         enter_belt_wait_zero_velocity_mode();
@@ -217,7 +247,6 @@ private:
             transition_to(ManagerLifecycleState::IDLE);
         }
 
-        bridge_io_.clear_last_error();
         reset_fire_count();
         *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
 
@@ -290,9 +319,6 @@ private:
                 "[DartManager] task '%s' FAILURE at action '%s' reason='%s' -> state=ERROR",
                 task_state_.current_task->name().c_str(), failed_action.c_str(),
                 to_string(failure.reason));
-            bridge_io_.set_last_error(
-                task_state_.current_task->name(), failed_action, failure.reason,
-                task_state_.current_task->description());
             on_task_failure();
         }
 
@@ -351,8 +377,10 @@ private:
     }
 
     void sync_debug_outputs() {
-        bridge_io_.sync_debug_outputs(
-            runtime_state_, active_task_name(), active_action_name(), task_state_.task_queue);
+        *fire_count_output_ = runtime_state_.fire_count;
+        *debug_lifecycle_state_output_ = to_string(runtime_state_.lifecycle_state);
+        *debug_current_task_output_ = active_task_name();
+        *debug_current_action_output_ = active_action_name();
     }
 
     void reset_fire_count() { runtime_state_.fire_count = 0; }
@@ -476,10 +504,18 @@ private:
     int32_t manual_force_max_error_;
     double manual_angle_max_error_;
 
+    // command & status
+    InputInterface<std::string> command_input_;
+
+    OutputInterface<uint32_t> fire_count_output_;
+    OutputInterface<std::string> debug_lifecycle_state_output_;
+    OutputInterface<std::string> debug_current_task_output_;
+    OutputInterface<std::string> debug_current_action_output_;
+
+    std::string last_command_;
+
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};
-
-    DartManagerBridgeIo bridge_io_;
 };
 
 } // namespace rmcs_dart_guidance::manager
