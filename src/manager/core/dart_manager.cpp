@@ -1,5 +1,5 @@
-#include "manager/core/components/dart_manager_bridge_io.hpp"
 #include "manager/core/runtime/task.hpp"
+#include "manager/external_control/dart_manager_bridge_io.hpp"
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
@@ -33,21 +33,35 @@ public:
         register_output("/dart_manager/belt/command", belt_command_);
         register_output("/dart_manager/belt/target_velocity", belt_target_velocity_);
         register_output("/dart_manager/belt/exit_mode", belt_exit_mode_);
-
-        register_input("/dart_manager/belt/arrive_flag", belt_arrive_flag_);
+        register_input("/dart/drive_belt/left/velocity", belt_left_velocity_);
+        register_input("/dart/drive_belt/left/torque", belt_left_torque_);
+        register_input("/dart/drive_belt/right/velocity", belt_right_velocity_);
+        register_input("/dart/drive_belt/right/torque", belt_right_torque_);
 
         belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
         belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
         manual_belt_velocity_ = get_parameter("manual_max_velocity").as_double();
+        belt_stall_velocity_threshold_ = get_parameter("belt_stall_velocity_threshold").as_double();
+        belt_stall_torque_threshold_ = get_parameter("belt_stall_torque_threshold").as_double();
+        belt_stall_confirm_ticks_ =
+            static_cast<uint64_t>(get_parameter("belt_stall_confirm_ticks").as_int());
 
         // lift
         register_output("/dart_manager/lift/command", lift_command_);
         register_output("/dart_manager/lift/target_velocity", lift_target_velocity_);
         register_output("/dart_manager/lift/exit_mode", lift_exit_mode_);
-
-        register_input("/dart_manager/lift/arrive_flag", lift_arrive_flag);
+        register_input("/dart/lifting_left/velocity", lift_left_velocity_);
+        register_input("/dart/lifting_left/torque", lift_left_torque_);
+        register_input("/dart/lifting_right/velocity", lift_right_velocity_);
+        register_input("/dart/lifting_right/torque", lift_right_torque_);
 
         lift_velocity_ = get_parameter("lift_velocity").as_double();
+        lift_stall_velocity_threshold_ = get_parameter("lifting_stall_threshold").as_double();
+        lift_stall_torque_threshold_ = get_parameter("lifting_stall_torque_threshold").as_double();
+        lift_stall_confirm_ticks_ =
+            static_cast<uint64_t>(get_parameter("lifting_stall_confirm_ticks").as_int());
+        lift_stall_min_run_ticks_ =
+            static_cast<uint64_t>(get_parameter("lifting_stall_min_run_ticks").as_int());
 
         // trigger
         register_output("/dart_manager/trigger/command", trigger_command_);
@@ -350,43 +364,55 @@ private:
 
     ManagerInputContext input_context() {
         return ManagerInputContext{
-            *belt_arrive_flag_,      //
-            *lift_arrive_flag,       //
-            *remote_left_switch_,    //
-            *remote_right_switch_,   //
-            *remote_left_joystick_,  //
-            *remote_right_joystick_, //
-            *force_sensor_ch1_,      //
-            *force_sensor_ch2_,      //
+            *belt_left_velocity_,           //
+            *belt_left_torque_,             //
+            *belt_right_velocity_,          //
+            *belt_right_torque_,            //
+            *lift_left_velocity_,           //
+            *lift_left_torque_,             //
+            *lift_right_velocity_,          //
+            *lift_right_torque_,            //
+            *force_sensor_ch1_,             //
+            *force_sensor_ch2_,             //
+            *remote_left_switch_,           //
+            *remote_right_switch_,          //
+            *remote_left_joystick_,         //
+            *remote_right_joystick_,        //
         };
     }
 
     ManagerOutputContext output_context() {
         return ManagerOutputContext{
-            *belt_command_,          //
-            *belt_target_velocity_,  //
-            *belt_exit_mode_,        //
-            *lift_command_,          //
-            *lift_target_velocity_,  //
-            *lift_exit_mode_,        //
-            *trigger_command_,       //
-            *limiting_command_,      //
-            *force_error_,           //
-            *angle_error_vector_,    //
+            *belt_command_,                 //
+            *belt_target_velocity_,         //
+            *belt_exit_mode_,               //
+            *lift_command_,                 //
+            *lift_target_velocity_,         //
+            *lift_exit_mode_,               //
+            *trigger_command_,              //
+            *limiting_command_,             //
+            *force_error_,                  //
+            *angle_error_vector_,           //
         };
     }
 
     ManagerSettings settings() const {
         return ManagerSettings{
-            belt_down_velocity_,     //
-            belt_up_velocity_,       //
-            manual_belt_velocity_,   //
-            manual_force_max_error_, //
-            manual_angle_max_error_, //
-            lift_velocity_,          //
-            limiting_fill_ticks_,    //
-            force_setpoint_,         //
-            force_allowable_error_,  //
+            belt_down_velocity_,            //
+            belt_up_velocity_,              //
+            belt_stall_velocity_threshold_, //
+            belt_stall_torque_threshold_,   //
+            belt_stall_confirm_ticks_,      //
+            manual_belt_velocity_,          //
+            lift_velocity_,                 //
+            lift_stall_velocity_threshold_, //
+            lift_stall_torque_threshold_,   //
+            lift_stall_confirm_ticks_,      //
+            limiting_fill_ticks_,           //
+            force_setpoint_,                //
+            force_allowable_error_,         //
+            manual_angle_max_error_,        //
+            manual_force_max_error_,        //
         };
     }
 
@@ -396,20 +422,31 @@ private:
     OutputInterface<rmcs_msgs::DartMechanismCommand> belt_command_;
     OutputInterface<double> belt_target_velocity_;
     OutputInterface<rmcs_msgs::ExitMode> belt_exit_mode_;
-
-    InputInterface<bool> belt_arrive_flag_;
+    InputInterface<double> belt_left_velocity_;
+    InputInterface<double> belt_left_torque_;
+    InputInterface<double> belt_right_velocity_;
+    InputInterface<double> belt_right_torque_;
 
     double belt_down_velocity_;
     double belt_up_velocity_;
+    double belt_stall_velocity_threshold_;
+    double belt_stall_torque_threshold_;
+    uint64_t belt_stall_confirm_ticks_;
 
     // lift
     OutputInterface<rmcs_msgs::DartMechanismCommand> lift_command_;
     OutputInterface<double> lift_target_velocity_;
     OutputInterface<rmcs_msgs::ExitMode> lift_exit_mode_;
-
-    InputInterface<bool> lift_arrive_flag;
+    InputInterface<double> lift_left_velocity_;
+    InputInterface<double> lift_left_torque_;
+    InputInterface<double> lift_right_velocity_;
+    InputInterface<double> lift_right_torque_;
 
     double lift_velocity_;
+    double lift_stall_velocity_threshold_;
+    double lift_stall_torque_threshold_;
+    uint64_t lift_stall_confirm_ticks_;
+    uint64_t lift_stall_min_run_ticks_;
 
     // trigger
     OutputInterface<rmcs_msgs::DartServoCommand> trigger_command_;

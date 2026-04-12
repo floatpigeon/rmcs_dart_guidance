@@ -36,10 +36,16 @@ public:
                     output.lifting_command,                  // 升降命令接口
                     output.lift_target_velocity,             // 升降目标速度接口
                     output.lift_exit_mode,                   // 电机退出状态接口
-                    input.lift_arrive_flag,                  // 电机堵转标志接口
+                    input.lift_left_velocity,                // 左电机速度反馈
+                    input.lift_left_torque,                  // 左电机力矩反馈
+                    input.lift_right_velocity,               // 右电机速度反馈
+                    input.lift_right_torque,                 // 右电机力矩反馈
                     rmcs_msgs::DartMechanismCommand::UP,     // 升降命令设置
                     settings.lift_target_velocity,           // 同步带目标速度设置
                     rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY, // 电机退出模式设置
+                    settings.lift_stall_velocity_threshold,  // 堵转速度阈值
+                    settings.lift_stall_torque_threshold,    // 堵转力矩阈值
+                    settings.lift_stall_confirm_ticks,       // 堵转确认帧数
                     20000                                    // 超时时间 ms
                     ));
 

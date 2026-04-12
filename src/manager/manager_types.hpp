@@ -29,16 +29,16 @@ inline const char* to_string(ManagerLifecycleState state) {
 
 struct ManagerInputContext {
     // belt
-    const bool& belt_arrive_flag;
+    const double& belt_left_velocity;
+    const double& belt_left_torque;
+    const double& belt_right_velocity;
+    const double& belt_right_torque;
 
     // lift
-    const bool& lift_arrive_flag;
-
-    // manual control
-    const rmcs_msgs::Switch& remote_left_switch;
-    const rmcs_msgs::Switch& remote_right_switch;
-    const Eigen::Vector2d& remote_left_joystick;
-    const Eigen::Vector2d& remote_right_joystick;
+    const double& lift_left_velocity;
+    const double& lift_left_torque;
+    const double& lift_right_velocity;
+    const double& lift_right_torque;
 
     // trigger
 
@@ -47,6 +47,12 @@ struct ManagerInputContext {
     // yaw pitch force
     const int32_t& force_sensor_ch1;
     const int32_t& force_sensor_ch2;
+
+    // remote control
+    const rmcs_msgs::Switch& remote_left_switch;
+    const rmcs_msgs::Switch& remote_right_switch;
+    const Eigen::Vector2d& remote_left_joystick;
+    const Eigen::Vector2d& remote_right_joystick;
 };
 
 struct ManagerOutputContext {
@@ -73,14 +79,18 @@ struct ManagerOutputContext {
 
 struct ManagerSettings {
     // belt
-    double belt_down_target_velocity;
-    double belt_up_target_velocity;
-    double manual_belt_target_velocity;
-    int32_t manual_force_max_error;
-    double manual_angle_max_error;
+    double belt_down_setting_velocity;
+    double belt_up_setting_velocity;
+    double belt_stall_velocity_threshold;
+    double belt_stall_torque_threshold;
+    uint64_t belt_stall_confirm_ticks;
+    double belt_manual_setting_velocity;
 
     // lift
     double lift_target_velocity;
+    double lift_stall_velocity_threshold;
+    double lift_stall_torque_threshold;
+    uint64_t lift_stall_confirm_ticks;
 
     // trigger
 
@@ -90,6 +100,8 @@ struct ManagerSettings {
     // yaw pitch force
     int32_t force_setpoint;
     int32_t force_allowable_error;
+    double manual_angle_max_error;
+    int32_t manual_force_max_error;
 };
 
 struct ManagerRuntimeState {
