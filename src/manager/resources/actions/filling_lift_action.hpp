@@ -82,6 +82,9 @@ public:
     }
 
     void on_exit() override {
+        if (exit_mode_ == rmcs_msgs::ExitMode::KEEP) {
+            return;
+        }
         lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         lift_target_velocity_ = 0.0;
         lift_exit_mode_ = exit_mode_;

@@ -81,6 +81,9 @@ public:
     }
 
     void on_exit() override {
+        if (exit_mode_ == rmcs_msgs::ExitMode::KEEP) {
+            return;
+        }
         belt_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         belt_target_velocity_ = 0.0;
         belt_exit_mode_ = exit_mode_;
@@ -102,6 +105,98 @@ private:
     double belt_stall_torque_threshold_;
     uint64_t belt_stall_confirm_ticks_;
     uint64_t stall_counter_{0};
+    uint64_t timeout_ticks_;
+};
+
+class BeltTravelAction : public IAction {
+public:
+    BeltTravelAction(
+        std::string name,                                        //
+        rmcs_msgs::DartMechanismCommand& belt_command_interface, //
+        double& target_velocity_interface,                       //
+        rmcs_msgs::ExitMode& exit_mode_interface,                //
+        const double& belt_left_angle,                           //
+        const double& belt_left_velocity,                        //
+        const double& belt_left_torque,                          //
+        const double& belt_right_angle,                          //
+        const double& belt_right_velocity,                       //
+        const double& belt_right_torque,                         //
+        rmcs_msgs::DartMechanismCommand command_setting,         //
+        double velocity_setting,                                 //
+        rmcs_msgs::ExitMode exit_mode_setting,                   //
+        double travel_distance_setting,                          //
+        uint64_t timeout_ticks_setting                           //
+        )
+        : IAction(std::move(name))
+        , belt_command_(belt_command_interface)
+        , belt_target_velocity_(target_velocity_interface)
+        , belt_exit_mode_(exit_mode_interface)
+        , belt_left_angle_(belt_left_angle)
+        , belt_left_velocity_(belt_left_velocity)
+        , belt_left_torque_(belt_left_torque)
+        , belt_right_angle_(belt_right_angle)
+        , belt_right_velocity_(belt_right_velocity)
+        , belt_right_torque_(belt_right_torque)
+        , command_(command_setting)
+        , target_velocity_(velocity_setting)
+        , exit_mode_(exit_mode_setting)
+        , target_travel_distance_(travel_distance_setting)
+        , timeout_ticks_(timeout_ticks_setting) {}
+
+    void on_enter() override {
+        belt_command_ = command_;
+        belt_target_velocity_ = target_velocity_;
+        belt_left_start_angle_ = belt_left_angle_;
+        belt_right_start_angle_ = belt_right_angle_;
+    }
+
+    ActionStatus update() override {
+        if (elapsed_ticks() >= timeout_ticks_) {
+            return fail(ActionFailureReason::TIMEOUT);
+        }
+
+        if (target_travel_distance_ <= 0.0) {
+            return ActionStatus::SUCCESS;
+        }
+
+        const double left_travel_distance = std::abs(belt_left_angle_ - belt_left_start_angle_);
+        const double right_travel_distance = std::abs(belt_right_angle_ - belt_right_start_angle_);
+        const double average_travel_distance =
+            (left_travel_distance + right_travel_distance) / 2.0;
+
+        if (average_travel_distance >= target_travel_distance_) {
+            return ActionStatus::SUCCESS;
+        }
+
+        return ActionStatus::RUNNING;
+    }
+
+    void on_exit() override {
+        if (exit_mode_ == rmcs_msgs::ExitMode::KEEP) {
+            return;
+        }
+        belt_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        belt_target_velocity_ = 0.0;
+        belt_exit_mode_ = exit_mode_;
+    }
+
+private:
+    rmcs_msgs::DartMechanismCommand& belt_command_;
+    double& belt_target_velocity_;
+    rmcs_msgs::ExitMode& belt_exit_mode_;
+    const double& belt_left_angle_;
+    [[maybe_unused]] const double& belt_left_velocity_;
+    [[maybe_unused]] const double& belt_left_torque_;
+    const double& belt_right_angle_;
+    [[maybe_unused]] const double& belt_right_velocity_;
+    [[maybe_unused]] const double& belt_right_torque_;
+
+    rmcs_msgs::DartMechanismCommand command_;
+    double target_velocity_;
+    rmcs_msgs::ExitMode exit_mode_;
+    double target_travel_distance_;
+    double belt_left_start_angle_{0.0};
+    double belt_right_start_angle_{0.0};
     uint64_t timeout_ticks_;
 };
 
