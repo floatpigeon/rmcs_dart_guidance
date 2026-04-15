@@ -2,11 +2,14 @@
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <eigen3/Eigen/Dense>
 #include <rclcpp/logger.hpp>
@@ -17,6 +20,14 @@
 #include <sys/types.h>
 
 namespace rmcs_dart_guidance::manager {
+namespace {
+
+// int64_t current_time_ms() {
+//     const auto now = std::chrono::system_clock::now().time_since_epoch();
+//     return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+// }
+
+} // namespace
 
 class DartManager
     : public rmcs_executor::Component
@@ -32,8 +43,10 @@ public:
         register_output("/dart_manager/belt/command", belt_command_);
         register_output("/dart_manager/belt/target_velocity", belt_target_velocity_);
         register_output("/dart_manager/belt/exit_mode", belt_exit_mode_);
+        register_input("/dart/drive_belt/left/angle", belt_left_angle_);
         register_input("/dart/drive_belt/left/velocity", belt_left_velocity_);
         register_input("/dart/drive_belt/left/torque", belt_left_torque_);
+        register_input("/dart/drive_belt/right/angle", belt_right_angle_);
         register_input("/dart/drive_belt/right/velocity", belt_right_velocity_);
         register_input("/dart/drive_belt/right/torque", belt_right_torque_);
 
@@ -85,15 +98,17 @@ public:
         // manual control
         register_input("/remote/switch/left", remote_left_switch_, false);
         register_input("/remote/switch/right", remote_right_switch_, false);
+        register_input("/remote/rotary_knob_switch", remote_rotary_knob_switch_, false);
         register_input("/remote/joystick/left", remote_left_joystick_, false);
         register_input("/remote/joystick/right", remote_right_joystick_, false);
 
-        manual_angle_max_error_ = get_parameter("max_transform_rate").as_double();
+        manual_angle_max_error_ = get_parameter("angle_manual_scale").as_double();
         manual_force_max_error_ =
-            static_cast<int32_t>(std::lround(get_parameter("manual_force_scale").as_double()));
+            static_cast<int32_t>(std::lround(get_parameter("force_manual_scale").as_double()));
 
         // command/debug io
         register_input("/dart/manager/command", command_input_, false);
+        register_input("/dart/manager/host_command", host_command_input_, false);
         register_output("/dart/manager/fire_count", fire_count_output_, uint32_t{0});
         register_output(
             "/dart/manager/debug/lifecycle_state", debug_lifecycle_state_output_,
@@ -102,6 +117,11 @@ public:
             "/dart/manager/debug/current_task", debug_current_task_output_, std::string{});
         register_output(
             "/dart/manager/debug/current_action", debug_current_action_output_, std::string{});
+        register_output(
+            "/dart/manager/debug/queue", debug_queue_output_, std::vector<ManagerQueuedTaskInfo>{});
+        register_output(
+            "/dart/manager/debug/last_error", debug_last_error_output_,
+            std::optional<ManagerLastErrorInfo>{});
 
         reset_fire_count();
         sync_debug_outputs();
@@ -109,7 +129,7 @@ public:
     }
 
     void before_updating() override {
-        bind_optional_command_input();
+        bind_optional_command_inputs();
         bind_optional_manual_inputs();
 
         auto input = input_context();
@@ -121,7 +141,7 @@ public:
     }
 
     void update() override {
-        poll_command();
+        poll_commands();
 
         if (runtime_state_.lifecycle_state == ManagerLifecycleState::ERROR) {
             sync_debug_outputs();
@@ -160,10 +180,16 @@ private:
         bool first_tick_of_task{true};
     };
 
-    void bind_optional_command_input() {
+    void bind_optional_command_inputs() {
         if (!command_input_.ready()) {
             command_input_.make_and_bind_directly(std::string{});
             RCLCPP_WARN(logger_, "Failed to fetch \"/dart/manager/command\". Set to empty string.");
+        }
+
+        if (!host_command_input_.ready()) {
+            host_command_input_.make_and_bind_directly(std::string{});
+            RCLCPP_WARN(
+                logger_, "Failed to fetch \"/dart/manager/host_command\". Set to empty string.");
         }
     }
 
@@ -178,6 +204,12 @@ private:
             RCLCPP_WARN(logger_, "Failed to fetch \"/remote/switch/right\". Set to UNKNOWN.");
         }
 
+        if (!remote_rotary_knob_switch_.ready()) {
+            remote_rotary_knob_switch_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
+            RCLCPP_WARN(
+                logger_, "Failed to fetch \"/remote/rotary_knob_switch\". Set to UNKNOWN.");
+        }
+
         if (!remote_left_joystick_.ready()) {
             remote_left_joystick_.make_and_bind_directly(Eigen::Vector2d::Zero());
             RCLCPP_WARN(logger_, "Failed to fetch \"/remote/joystick/left\". Set to zero.");
@@ -189,12 +221,21 @@ private:
         }
     }
 
-    void poll_command() {
-        const std::string cmd = poll_new_command();
-        if (cmd.empty()) {
-            return;
+    void poll_commands() {
+        const std::string host_cmd =
+            host_command_input_.ready() ? *host_command_input_ : std::string{};
+        const std::string remote_cmd = command_input_.ready() ? *command_input_ : std::string{};
+
+        if (!host_cmd.empty()) {
+            process_command(host_cmd);
         }
 
+        if (!remote_cmd.empty() && remote_cmd != host_cmd) {
+            process_command(remote_cmd);
+        }
+    }
+
+    void process_command(const std::string& cmd) {
         if (cmd == "cancel") {
             cancel_all();
         } else if (cmd == "recover") {
@@ -214,29 +255,13 @@ private:
         }
     }
 
-    std::string poll_new_command() {
-        std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
-
-        if (cmd.empty()) {
-            last_command_.clear();
-            return {};
-        }
-
-        if (cmd == last_command_) {
-            return {};
-        }
-
-        last_command_ = cmd;
-        return cmd;
-    }
-
     void cancel_all() {
         cancel_task_state(task_state_, ActionCancelReason::EXTERNAL_CANCEL);
         enter_belt_wait_zero_velocity_mode();
         *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
 
-        RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
+        // RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
         transition_to(ManagerLifecycleState::IDLE);
     }
 
@@ -314,6 +339,7 @@ private:
             const std::string failed_action = failure.action_name.empty()
                                                 ? task_state_.current_task->name()
                                                 : failure.action_name;
+            record_last_error(task_state_.current_task->name(), failed_action, failure.reason);
             RCLCPP_ERROR(
                 logger_,
                 "[DartManager] task '%s' FAILURE at action '%s' reason='%s' -> state=ERROR",
@@ -376,11 +402,32 @@ private:
         return task_state_.current_task->current_action_name();
     }
 
+    void record_last_error(
+        const std::string& task_name, const std::string& action_name, ActionFailureReason reason) {
+        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        auto current_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        last_error_ = ManagerLastErrorInfo{task_name, action_name, reason, current_time_ms};
+    }
+
+    std::vector<ManagerQueuedTaskInfo> build_queue_snapshot() const {
+        std::vector<ManagerQueuedTaskInfo> queue;
+        queue.reserve(task_state_.task_queue.size());
+        for (const auto& task : task_state_.task_queue) {
+            if (!task) {
+                continue;
+            }
+            queue.push_back(ManagerQueuedTaskInfo{task->name(), task->description()});
+        }
+        return queue;
+    }
+
     void sync_debug_outputs() {
         *fire_count_output_ = runtime_state_.fire_count;
         *debug_lifecycle_state_output_ = to_string(runtime_state_.lifecycle_state);
         *debug_current_task_output_ = active_task_name();
         *debug_current_action_output_ = active_action_name();
+        *debug_queue_output_ = build_queue_snapshot();
+        *debug_last_error_output_ = last_error_;
     }
 
     void reset_fire_count() { runtime_state_.fire_count = 0; }
@@ -392,8 +439,10 @@ private:
 
     ManagerInputContext input_context() {
         return ManagerInputContext{
+            *belt_left_angle_,              //
             *belt_left_velocity_,           //
             *belt_left_torque_,             //
+            *belt_right_angle_,             //
             *belt_right_velocity_,          //
             *belt_right_torque_,            //
             *lift_left_velocity_,           //
@@ -404,6 +453,7 @@ private:
             *force_sensor_ch2_,             //
             *remote_left_switch_,           //
             *remote_right_switch_,          //
+            *remote_rotary_knob_switch_,    //
             *remote_left_joystick_,         //
             *remote_right_joystick_,        //
         };
@@ -450,8 +500,10 @@ private:
     OutputInterface<rmcs_msgs::DartMechanismCommand> belt_command_;
     OutputInterface<double> belt_target_velocity_;
     OutputInterface<rmcs_msgs::ExitMode> belt_exit_mode_;
+    InputInterface<double> belt_left_angle_;
     InputInterface<double> belt_left_velocity_;
     InputInterface<double> belt_left_torque_;
+    InputInterface<double> belt_right_angle_;
     InputInterface<double> belt_right_velocity_;
     InputInterface<double> belt_right_torque_;
 
@@ -497,6 +549,7 @@ private:
     // manual control
     InputInterface<rmcs_msgs::Switch> remote_left_switch_;
     InputInterface<rmcs_msgs::Switch> remote_right_switch_;
+    InputInterface<rmcs_msgs::Switch> remote_rotary_knob_switch_;
     InputInterface<Eigen::Vector2d> remote_left_joystick_;
     InputInterface<Eigen::Vector2d> remote_right_joystick_;
 
@@ -506,13 +559,16 @@ private:
 
     // command & status
     InputInterface<std::string> command_input_;
+    InputInterface<std::string> host_command_input_;
 
     OutputInterface<uint32_t> fire_count_output_;
     OutputInterface<std::string> debug_lifecycle_state_output_;
     OutputInterface<std::string> debug_current_task_output_;
     OutputInterface<std::string> debug_current_action_output_;
+    OutputInterface<std::vector<ManagerQueuedTaskInfo>> debug_queue_output_;
+    OutputInterface<std::optional<ManagerLastErrorInfo>> debug_last_error_output_;
 
-    std::string last_command_;
+    std::optional<ManagerLastErrorInfo> last_error_;
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};

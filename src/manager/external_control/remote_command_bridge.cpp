@@ -59,7 +59,7 @@ public:
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");
             chambered_ = false;
-            RCLCPP_INFO(logger_, "[RemoteCommandBridge] cancel");
+            // RCLCPP_INFO(logger_, "[RemoteCommandBridge] cancel");
             update_previous_switches(left, right);
             return;
         }
@@ -114,24 +114,19 @@ private:
     }
 
     bool detect_recover_transition(rmcs_msgs::Switch current_left) const {
-        return current_left == rmcs_msgs::Switch::MIDDLE
-            && prev_left_ == rmcs_msgs::Switch::DOWN;
+        return current_left == rmcs_msgs::Switch::MIDDLE && prev_left_ == rmcs_msgs::Switch::DOWN;
     }
 
     bool detect_prepare_toggle(
         rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
-        return current_left == rmcs_msgs::Switch::MIDDLE
-            && prev_left_ == rmcs_msgs::Switch::MIDDLE
-            && prev_right_ == rmcs_msgs::Switch::MIDDLE
-            && current_right == rmcs_msgs::Switch::DOWN;
+        return current_left == rmcs_msgs::Switch::MIDDLE && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::MIDDLE && current_right == rmcs_msgs::Switch::DOWN;
     }
 
     bool detect_fire_transition(
         rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) const {
-        return current_left == rmcs_msgs::Switch::MIDDLE
-            && prev_left_ == rmcs_msgs::Switch::MIDDLE
-            && prev_right_ == rmcs_msgs::Switch::MIDDLE
-            && current_right == rmcs_msgs::Switch::UP;
+        return current_left == rmcs_msgs::Switch::MIDDLE && prev_left_ == rmcs_msgs::Switch::MIDDLE
+            && prev_right_ == rmcs_msgs::Switch::MIDDLE && current_right == rmcs_msgs::Switch::UP;
     }
 
     void update_previous_switches(rmcs_msgs::Switch current_left, rmcs_msgs::Switch current_right) {
