@@ -31,7 +31,7 @@ public:
                 settings.belt_stall_velocity_threshold,  // 堵转速度阈值
                 settings.belt_stall_torque_threshold,    // 堵转力矩阈值
                 settings.belt_stall_confirm_ticks,       // 堵转确认帧数
-                20000                                    // 超时时间 ms
+                10000                                    // 超时时间 ms
                 ));
     }
 };
