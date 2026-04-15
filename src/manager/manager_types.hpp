@@ -1,10 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <eigen3/Eigen/Dense>
 
 #include "Eigen/src/Core/Matrix.h"
+#include "manager/core/runtime/action.hpp"
 #include "rmcs_msgs/dart_mechanism_command.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
 #include "rmcs_msgs/dart_servo_command.hpp"
@@ -29,8 +33,10 @@ inline const char* to_string(ManagerLifecycleState state) {
 
 struct ManagerInputContext {
     // belt
+    const double& belt_left_angle;
     const double& belt_left_velocity;
     const double& belt_left_torque;
+    const double& belt_right_angle;
     const double& belt_right_velocity;
     const double& belt_right_torque;
 
@@ -51,6 +57,7 @@ struct ManagerInputContext {
     // remote control
     const rmcs_msgs::Switch& remote_left_switch;
     const rmcs_msgs::Switch& remote_right_switch;
+    const rmcs_msgs::Switch& remote_rotary_knob_switch;
     const Eigen::Vector2d& remote_left_joystick;
     const Eigen::Vector2d& remote_right_joystick;
 };
@@ -107,6 +114,22 @@ struct ManagerSettings {
 struct ManagerRuntimeState {
     uint32_t fire_count{0};
     ManagerLifecycleState lifecycle_state{ManagerLifecycleState::IDLE};
+};
+
+struct ManagerQueuedTaskInfo {
+    std::string task_name;
+    std::string display_name;
+
+    friend bool operator==(const ManagerQueuedTaskInfo&, const ManagerQueuedTaskInfo&) = default;
+};
+
+struct ManagerLastErrorInfo {
+    std::string task_name;
+    std::string action_name;
+    ActionFailureReason reason{ActionFailureReason::NONE};
+    int64_t timestamp_ms{0};
+
+    friend bool operator==(const ManagerLastErrorInfo&, const ManagerLastErrorInfo&) = default;
 };
 
 } // namespace rmcs_dart_guidance::manager
