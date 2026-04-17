@@ -1,22 +1,24 @@
 #pragma once
 
-#include "action.hpp"
+#include "manager/core/runtime/action.hpp"
 
 #include <cstdint>
+#include <string>
 
-#include <rmcs_msgs/dart_limiting_servo_status.hpp>
+#include "rmcs_msgs/dart_servo_command.hpp"
 
 namespace rmcs_dart_guidance::manager {
 
-// 填装限位舵机动作：先下发 FREE 语义命令，等待 fill_ticks，再下发 LOCK。
 class FillingLimitServoAction : public IAction {
 public:
     FillingLimitServoAction(
-        rmcs_msgs::DartLimitingServoStatus& limiting_command,
-        rmcs_msgs::DartLimitingServoStatus trigger_command,
-        rmcs_msgs::DartLimitingServoStatus lock_command,
-        uint64_t fill_ticks)
-        : IAction("limiting_fill")
+        std::string name,                              //
+        rmcs_msgs::DartServoCommand& limiting_command, //
+        rmcs_msgs::DartServoCommand trigger_command,   //
+        rmcs_msgs::DartServoCommand lock_command,      //
+        uint64_t fill_ticks                            //
+        )
+        : IAction(std::move(name))
         , limiting_command_(limiting_command)
         , trigger_command_(trigger_command)
         , lock_command_(lock_command)
@@ -35,9 +37,9 @@ public:
     void on_exit() override { limiting_command_ = lock_command_; }
 
 private:
-    rmcs_msgs::DartLimitingServoStatus& limiting_command_;
-    rmcs_msgs::DartLimitingServoStatus trigger_command_;
-    rmcs_msgs::DartLimitingServoStatus lock_command_;
+    rmcs_msgs::DartServoCommand& limiting_command_;
+    rmcs_msgs::DartServoCommand trigger_command_;
+    rmcs_msgs::DartServoCommand lock_command_;
     uint64_t fill_ticks_;
 };
 

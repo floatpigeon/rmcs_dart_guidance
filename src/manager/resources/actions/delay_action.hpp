@@ -1,25 +1,28 @@
 #pragma once
 
-#include "action.hpp"
+#include "manager/core/runtime/action.hpp"
+
+#include <cstdint>
 #include <string>
+#include <utility>
 
 namespace rmcs_dart_guidance::manager {
 
 class DelayAction : public IAction {
 public:
-    DelayAction(std::string name, uint64_t wait_ticks)
+    DelayAction(std::string name, uint64_t delay_ticks)
         : IAction(std::move(name))
-        , wait_ticks_(wait_ticks) {}
+        , delay_ticks_(delay_ticks) {}
 
     ActionStatus update() override {
-        if (elapsed_ticks() >= wait_ticks_) {
+        if (elapsed_ticks() >= delay_ticks_) {
             return ActionStatus::SUCCESS;
         }
         return ActionStatus::RUNNING;
     }
 
 private:
-    uint64_t wait_ticks_;
+    uint64_t delay_ticks_;
 };
 
 } // namespace rmcs_dart_guidance::manager
