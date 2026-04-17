@@ -60,6 +60,13 @@ struct ManagerInputContext {
     const rmcs_msgs::Switch& remote_rotary_knob_switch;
     const Eigen::Vector2d& remote_left_joystick;
     const Eigen::Vector2d& remote_right_joystick;
+
+    // host manual control
+    const int32_t& host_manual_belt_direction;
+    const int32_t& host_manual_lift_direction;
+    const int32_t& host_manual_yaw_direction;
+    const int32_t& host_manual_pitch_direction;
+    const rmcs_msgs::DartServoCommand& host_manual_trigger_command;
 };
 
 struct ManagerOutputContext {
@@ -114,6 +121,7 @@ struct ManagerSettings {
 struct ManagerRuntimeState {
     uint32_t fire_count{0};
     ManagerLifecycleState lifecycle_state{ManagerLifecycleState::IDLE};
+    bool host_manual_control_active{false};
 };
 
 struct ManagerQueuedTaskInfo {

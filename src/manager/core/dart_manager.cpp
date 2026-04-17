@@ -1,6 +1,7 @@
 #include "manager/core/runtime/task.hpp"
 #include "manager/resources/task_factory.hpp"
 #include "rmcs_msgs/dart_motor_exit_mode.hpp"
+#include "rmcs_msgs/dart_servo_command.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <eigen3/Eigen/Dense>
@@ -20,14 +22,6 @@
 #include <sys/types.h>
 
 namespace rmcs_dart_guidance::manager {
-namespace {
-
-// int64_t current_time_ms() {
-//     const auto now = std::chrono::system_clock::now().time_since_epoch();
-//     return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-// }
-
-} // namespace
 
 class DartManager
     : public rmcs_executor::Component
@@ -106,6 +100,18 @@ public:
         manual_force_max_error_ =
             static_cast<int32_t>(std::lround(get_parameter("force_manual_scale").as_double()));
 
+        // host manual control
+        register_input(
+            "/dart/manager/host_manual/belt_direction", host_manual_belt_direction_, false);
+        register_input(
+            "/dart/manager/host_manual/lift_direction", host_manual_lift_direction_, false);
+        register_input(
+            "/dart/manager/host_manual/yaw_direction", host_manual_yaw_direction_, false);
+        register_input(
+            "/dart/manager/host_manual/pitch_direction", host_manual_pitch_direction_, false);
+        register_input(
+            "/dart/manager/host_manual/trigger_command", host_manual_trigger_command_, false);
+
         // command/debug io
         register_input("/dart/manager/command", command_input_, false);
         register_input("/dart/manager/host_command", host_command_input_, false);
@@ -117,6 +123,19 @@ public:
             "/dart/manager/debug/current_task", debug_current_task_output_, std::string{});
         register_output(
             "/dart/manager/debug/current_action", debug_current_action_output_, std::string{});
+
+        register_output(
+            "/dart/manager/debug/host_last_command", debug_host_last_command_output_,
+            std::string{});
+        register_output(
+            "/dart/manager/debug/host_last_command_status", debug_host_last_command_status_output_,
+            std::string{});
+        register_output(
+            "/dart/manager/debug/host_last_command_timestamp_ms",
+            debug_host_last_command_timestamp_output_, int64_t{0});
+        register_output(
+            "/dart/manager/debug/manual_control_active", debug_manual_control_active_output_,
+            false);
         register_output(
             "/dart/manager/debug/queue", debug_queue_output_, std::vector<ManagerQueuedTaskInfo>{});
         register_output(
@@ -131,6 +150,7 @@ public:
     void before_updating() override {
         bind_optional_command_inputs();
         bind_optional_manual_inputs();
+        bind_optional_host_manual_inputs();
 
         auto input = input_context();
         auto output = output_context();
@@ -174,6 +194,11 @@ public:
     }
 
 private:
+    enum class CommandSource : uint8_t {
+        REMOTE = 0,
+        HOST = 1,
+    };
+
     struct TaskState {
         std::shared_ptr<Task> current_task;
         std::deque<std::shared_ptr<Task>> task_queue;
@@ -206,8 +231,7 @@ private:
 
         if (!remote_rotary_knob_switch_.ready()) {
             remote_rotary_knob_switch_.make_and_bind_directly(rmcs_msgs::Switch::UNKNOWN);
-            RCLCPP_WARN(
-                logger_, "Failed to fetch \"/remote/rotary_knob_switch\". Set to UNKNOWN.");
+            RCLCPP_WARN(logger_, "Failed to fetch \"/remote/rotary_knob_switch\". Set to UNKNOWN.");
         }
 
         if (!remote_left_joystick_.ready()) {
@@ -221,25 +245,123 @@ private:
         }
     }
 
+    void bind_optional_host_manual_inputs() {
+        if (!host_manual_belt_direction_.ready()) {
+            host_manual_belt_direction_.make_and_bind_directly(int32_t{0});
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart/manager/host_manual/belt_direction\". Set to zero.");
+        }
+
+        if (!host_manual_lift_direction_.ready()) {
+            host_manual_lift_direction_.make_and_bind_directly(int32_t{0});
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart/manager/host_manual/lift_direction\". Set to zero.");
+        }
+
+        if (!host_manual_yaw_direction_.ready()) {
+            host_manual_yaw_direction_.make_and_bind_directly(int32_t{0});
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart/manager/host_manual/yaw_direction\". Set to zero.");
+        }
+
+        if (!host_manual_pitch_direction_.ready()) {
+            host_manual_pitch_direction_.make_and_bind_directly(int32_t{0});
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart/manager/host_manual/pitch_direction\". Set to zero.");
+        }
+
+        if (!host_manual_trigger_command_.ready()) {
+            host_manual_trigger_command_.make_and_bind_directly(rmcs_msgs::DartServoCommand::WAIT);
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart/manager/host_manual/trigger_command\". Set to WAIT.");
+        }
+    }
+
     void poll_commands() {
         const std::string host_cmd =
             host_command_input_.ready() ? *host_command_input_ : std::string{};
         const std::string remote_cmd = command_input_.ready() ? *command_input_ : std::string{};
 
         if (!host_cmd.empty()) {
-            process_command(host_cmd);
+            process_command(host_cmd, CommandSource::HOST);
         }
 
         if (!remote_cmd.empty() && remote_cmd != host_cmd) {
-            process_command(remote_cmd);
+            process_command(remote_cmd, CommandSource::REMOTE);
         }
     }
 
-    void process_command(const std::string& cmd) {
+    void process_command(const std::string& cmd, CommandSource source) {
+        if (source == CommandSource::HOST) {
+            mark_host_command(cmd, "accepted");
+        }
+
         if (cmd == "cancel") {
             cancel_all();
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "applied");
+            }
+            return;
         } else if (cmd == "recover") {
             recover();
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "applied");
+            }
+            return;
+        }
+
+        if (runtime_state_.lifecycle_state == ManagerLifecycleState::ERROR) {
+            RCLCPP_WARN(
+                logger_, "[DartManager] ignored command '%s' while lifecycle_state=ERROR",
+                cmd.c_str());
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "rejected");
+            }
+            return;
+        }
+
+        if (cmd == "manual_control_enter") {
+            if (source != CommandSource::HOST || !enter_host_manual_control()) {
+                if (source == CommandSource::HOST) {
+                    mark_host_command(cmd, "rejected");
+                }
+                return;
+            }
+
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "applied");
+            }
+            return;
+        }
+
+        if (cmd == "manual_control_exit") {
+            if (source != CommandSource::HOST || !exit_host_manual_control()) {
+                if (source == CommandSource::HOST) {
+                    mark_host_command(cmd, "rejected");
+                }
+                return;
+            }
+
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "applied");
+            }
+            return;
+        }
+
+        if (runtime_state_.host_manual_control_active) {
+            RCLCPP_WARN(
+                logger_,
+                "[DartManager] rejected command '%s' because host manual control is active",
+                cmd.c_str());
+            if (source == CommandSource::HOST) {
+                mark_host_command(cmd, "rejected");
+            }
+            return;
         } else {
             auto input = input_context();
             auto output = output_context();
@@ -251,15 +373,52 @@ private:
                 submit_task(std::move(task));
             } else {
                 RCLCPP_WARN(logger_, "[DartManager] unknown command: '%s'", cmd.c_str());
+                if (source == CommandSource::HOST) {
+                    mark_host_command(cmd, "rejected");
+                }
             }
         }
     }
 
+    bool enter_host_manual_control() {
+        if (runtime_state_.host_manual_control_active) {
+            return false;
+        }
+
+        cancel_task_state(task_state_, ActionCancelReason::EXTERNAL_CANCEL);
+        reset_control_outputs();
+        runtime_state_.host_manual_control_active = true;
+
+        auto input = input_context();
+        auto output = output_context();
+        auto manager_settings = settings();
+        auto task =
+            make_task("host_manual_control", input, output, manager_settings, runtime_state_);
+        if (!task) {
+            runtime_state_.host_manual_control_active = false;
+            return false;
+        }
+
+        submit_task(std::move(task));
+        return true;
+    }
+
+    bool exit_host_manual_control() {
+        if (!runtime_state_.host_manual_control_active) {
+            return false;
+        }
+
+        runtime_state_.host_manual_control_active = false;
+        cancel_task_state(task_state_, ActionCancelReason::HOST_COMPLETION);
+        reset_control_outputs();
+        transition_to(ManagerLifecycleState::IDLE);
+        return true;
+    }
+
     void cancel_all() {
         cancel_task_state(task_state_, ActionCancelReason::EXTERNAL_CANCEL);
-        enter_belt_wait_zero_velocity_mode();
-        *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
+        runtime_state_.host_manual_control_active = false;
+        reset_control_outputs();
 
         // RCLCPP_WARN(logger_, "[DartManager] all tasks cancelled");
         transition_to(ManagerLifecycleState::IDLE);
@@ -272,8 +431,9 @@ private:
             transition_to(ManagerLifecycleState::IDLE);
         }
 
+        runtime_state_.host_manual_control_active = false;
         reset_fire_count();
-        *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
+        reset_control_outputs();
 
         auto input = input_context();
         auto output = output_context();
@@ -309,6 +469,11 @@ private:
         task_state_.first_tick_of_task = true;
         if (runtime_state_.lifecycle_state != ManagerLifecycleState::RUNNING) {
             transition_to(ManagerLifecycleState::RUNNING);
+        }
+
+        if (last_host_command_status_ == "accepted"
+            && last_host_command_ == task_state_.current_task->name()) {
+            mark_host_command(last_host_command_, "applied");
         }
     }
 
@@ -359,9 +524,8 @@ private:
         task_state_.current_task->finish_failure();
         reset_task_state(task_state_);
 
-        enter_belt_wait_zero_velocity_mode();
-        *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
+        runtime_state_.host_manual_control_active = false;
+        reset_control_outputs();
 
         transition_to(ManagerLifecycleState::ERROR);
     }
@@ -369,6 +533,18 @@ private:
     void enter_belt_wait_zero_velocity_mode() {
         *belt_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
         *belt_target_velocity_ = 0.0;
+        *belt_exit_mode_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
+    }
+
+    void reset_control_outputs() {
+        enter_belt_wait_zero_velocity_mode();
+        *lift_command_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        *lift_target_velocity_ = 0.0;
+        *lift_exit_mode_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
+        *trigger_command_ = rmcs_msgs::DartServoCommand::WAIT;
+        *limiting_command_ = rmcs_msgs::DartServoCommand::LOCK;
+        *force_error_ = 0;
+        *angle_error_vector_ = Eigen::Vector2d::Zero();
     }
 
     static void reset_task_state(TaskState& task_state) {
@@ -426,8 +602,21 @@ private:
         *debug_lifecycle_state_output_ = to_string(runtime_state_.lifecycle_state);
         *debug_current_task_output_ = active_task_name();
         *debug_current_action_output_ = active_action_name();
+        *debug_host_last_command_output_ = last_host_command_;
+        *debug_host_last_command_status_output_ = last_host_command_status_;
+        *debug_host_last_command_timestamp_output_ = last_host_command_timestamp_ms_;
+        *debug_manual_control_active_output_ = runtime_state_.host_manual_control_active;
         *debug_queue_output_ = build_queue_snapshot();
         *debug_last_error_output_ = last_error_;
+    }
+
+    void mark_host_command(const std::string& command, std::string_view status) {
+        last_host_command_ = command;
+        last_host_command_status_ = std::string(status);
+
+        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        auto current_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        last_host_command_timestamp_ms_ = current_time_ms;
     }
 
     void reset_fire_count() { runtime_state_.fire_count = 0; }
@@ -456,6 +645,11 @@ private:
             *remote_rotary_knob_switch_,    //
             *remote_left_joystick_,         //
             *remote_right_joystick_,        //
+            *host_manual_belt_direction_,   //
+            *host_manual_lift_direction_,   //
+            *host_manual_yaw_direction_,    //
+            *host_manual_pitch_direction_,  //
+            *host_manual_trigger_command_,  //
         };
     }
 
@@ -553,6 +747,12 @@ private:
     InputInterface<Eigen::Vector2d> remote_left_joystick_;
     InputInterface<Eigen::Vector2d> remote_right_joystick_;
 
+    InputInterface<int32_t> host_manual_belt_direction_;
+    InputInterface<int32_t> host_manual_lift_direction_;
+    InputInterface<int32_t> host_manual_yaw_direction_;
+    InputInterface<int32_t> host_manual_pitch_direction_;
+    InputInterface<rmcs_msgs::DartServoCommand> host_manual_trigger_command_;
+
     double manual_belt_velocity_;
     int32_t manual_force_max_error_;
     double manual_angle_max_error_;
@@ -565,10 +765,17 @@ private:
     OutputInterface<std::string> debug_lifecycle_state_output_;
     OutputInterface<std::string> debug_current_task_output_;
     OutputInterface<std::string> debug_current_action_output_;
+    OutputInterface<std::string> debug_host_last_command_output_;
+    OutputInterface<std::string> debug_host_last_command_status_output_;
+    OutputInterface<int64_t> debug_host_last_command_timestamp_output_;
+    OutputInterface<bool> debug_manual_control_active_output_;
     OutputInterface<std::vector<ManagerQueuedTaskInfo>> debug_queue_output_;
     OutputInterface<std::optional<ManagerLastErrorInfo>> debug_last_error_output_;
 
     std::optional<ManagerLastErrorInfo> last_error_;
+    std::string last_host_command_;
+    std::string last_host_command_status_;
+    int64_t last_host_command_timestamp_ms_{0};
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};

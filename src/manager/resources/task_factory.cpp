@@ -3,6 +3,7 @@
 #include "manager/resources/tasks/cancel_launch_task.hpp"
 #include "manager/resources/tasks/fire_and_preload_task.hpp"
 #include "manager/resources/tasks/filling_lift_task.hpp"
+#include "manager/resources/tasks/host_manual_control_task.hpp"
 #include "manager/resources/tasks/launch_preparation_task.hpp"
 #include "manager/resources/tasks/manual_control_task.hpp"
 #include "manager/resources/tasks/slider_init_task.hpp"
@@ -49,6 +50,10 @@ std::shared_ptr<Task> make_task(
 
     if (cmd == "manual_control" || cmd == "manual-control" || cmd == "manual") {
         return std::make_shared<ManualControlTask>(input, output, settings);
+    }
+
+    if (cmd == "host_manual_control") {
+        return std::make_shared<HostManualControlTask>(input, output, settings);
     }
 
     return nullptr;

@@ -11,6 +11,9 @@
   <class type="rmcs_dart_guidance::manager::RemoteCommandBridge" base_class_type="rmcs_executor::Component">
     <description>Translates DR16 remote controller switch signals into DartManager commands.</description>
   </class>
+  <class type="rmcs_dart_guidance::manager::HostBridge" base_class_type="rmcs_executor::Component">
+    <description>Non-blocking localhost TCP bridge for Host handshake, heartbeat, echo and manager state output.</description>
+  </class>
   <class type="rmcs_dart_guidance::manager::DartManager" base_class_type="rmcs_executor::Component">
     <description>Dart task manager: 4-shot group counting with lifting and limiting servo control.</description>
   </class>

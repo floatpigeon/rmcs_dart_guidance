@@ -74,9 +74,10 @@ src/manager/
 
 `ActionSet` 仍然作为通用 runtime 能力保留，但当前 manager 主流程主要使用顺序 `Task` 和 `ActionSequence`。
 
-当前 belt 控制有两类退出语义：
+当前 motor 控制有三类退出语义：
 - `WAIT_ZERO_VELOCITY`：退出后进入零速闭环等待。
 - `WAIT_HOLD_TORQUE`：退出后进入 `WAIT + hold torque`，保持同步带对滑块的压紧状态，直到下一条 belt 指令覆盖。
+- `KEEP`：退出后保持当前输出不变，直到下一条命令覆盖。
 
 当前 manager 还会通过 `/dart/manager/fire_count` 输出成功完成 `fire_preload` 的次数。
 任务分支使用 `fire_count` 判断是否为首发：
