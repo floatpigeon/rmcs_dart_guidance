@@ -85,7 +85,7 @@ public:
         return ActionStatus::SUCCESS;
     }
 
-    void on_exit() override { cancel_active_child(ActionCancelReason::HOST_COMPLETION); }
+    void on_exit() override { cancel_active_child(ActionCancelReason::NORMAL_COMPLETION); }
 
     void on_cancel(ActionCancelReason reason) override { cancel_active_child(reason); }
 

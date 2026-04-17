@@ -25,8 +25,7 @@ enum class ActionFailureReason : uint8_t {
 
 enum class ActionCancelReason : uint8_t {
     EXTERNAL_CANCEL,
-    HOST_COMPLETION,
-    HOST_FAILURE,
+    NORMAL_COMPLETION,
     DEPENDENCY_FAILURE,
 };
 
@@ -44,8 +43,7 @@ inline const char* to_string(ActionFailureReason reason) {
 inline const char* to_string(ActionCancelReason reason) {
     switch (reason) {
     case ActionCancelReason::EXTERNAL_CANCEL: return "external_cancel";
-    case ActionCancelReason::HOST_COMPLETION: return "host_completion";
-    case ActionCancelReason::HOST_FAILURE: return "host_failure";
+    case ActionCancelReason::NORMAL_COMPLETION: return "normal_completion";
     case ActionCancelReason::DEPENDENCY_FAILURE: return "dependency_failure";
     }
     return "unknown";

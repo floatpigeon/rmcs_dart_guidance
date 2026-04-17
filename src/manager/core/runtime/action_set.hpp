@@ -90,7 +90,7 @@ public:
                 e.status = ActionStatus::SUCCESS;
                 ++success_count;
                 if (policy_ == Policy::ANY_SUCCESS && success_count > 0) {
-                    cancel_running(ActionCancelReason::HOST_COMPLETION);
+                    cancel_running(ActionCancelReason::NORMAL_COMPLETION);
                     return ActionStatus::SUCCESS;
                 }
             } else if (status == ActionStatus::FAILURE) {
@@ -128,7 +128,7 @@ public:
         return ActionStatus::RUNNING;
     }
 
-    void on_exit() override { cancel_running(ActionCancelReason::HOST_COMPLETION); }
+    void on_exit() override { cancel_running(ActionCancelReason::NORMAL_COMPLETION); }
 
     void on_cancel(ActionCancelReason reason) override { cancel_running(reason); }
 
