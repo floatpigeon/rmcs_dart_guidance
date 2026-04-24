@@ -44,6 +44,7 @@ public:
 
         belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
         belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
+        belt_up_travel_angle_ = get_parameter("belt_up_travel_angle").as_double();
         manual_belt_velocity_ = get_parameter("manual_max_velocity").as_double();
         belt_stall_velocity_threshold_ = get_parameter("belt_stall_velocity_threshold").as_double();
         belt_stall_torque_threshold_ = get_parameter("belt_stall_torque_threshold").as_double();
@@ -482,6 +483,7 @@ private:
         return ManagerSettings{
             belt_down_velocity_,            //
             belt_up_velocity_,              //
+            belt_up_travel_angle_,          //
             belt_stall_velocity_threshold_, //
             belt_stall_torque_threshold_,   //
             belt_stall_confirm_ticks_,      //
@@ -513,6 +515,7 @@ private:
 
     double belt_down_velocity_;
     double belt_up_velocity_;
+    double belt_up_travel_angle_;
     double belt_stall_velocity_threshold_;
     double belt_stall_torque_threshold_;
     uint64_t belt_stall_confirm_ticks_;

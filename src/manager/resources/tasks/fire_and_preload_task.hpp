@@ -26,7 +26,7 @@ public:
                 "trigger_free",                              // 动作名称
                 output.trigger_command,                      //
                 rmcs_msgs::DartServoCommand::FREE,           //
-                100                                          //
+                1000                                         //
                 ));
 
         if (runtime_state.fire_count > 0) {

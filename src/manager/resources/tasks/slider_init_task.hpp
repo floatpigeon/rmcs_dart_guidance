@@ -3,6 +3,7 @@
 #include "manager/core/runtime/task.hpp"
 #include "manager/manager_types.hpp"
 #include "manager/resources/actions/belt_control_action.hpp"
+#include "manager/resources/actions/filling_limit_servo_action.hpp"
 
 #include <memory>
 
@@ -14,6 +15,15 @@ public:
         const ManagerInputContext& input, ManagerOutputContext& output,
         const ManagerSettings& settings)
         : Task("slider_init", "传送带上行复位") {
+
+        then(
+            std::make_shared<FillingLimitServoAction>(
+                "filling_limit_servo",                   // 动作名称
+                output.limiting_command,                 // 限位舵机状态（输出）
+                rmcs_msgs::DartServoCommand::FREE,       // 先释放
+                rmcs_msgs::DartServoCommand::LOCK,       // 再锁回
+                settings.limiting_fill_ticks             // 预装填持续帧数
+                ));
 
         then(
             std::make_shared<BeltControlAction>(
@@ -30,7 +40,7 @@ public:
                 rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY, // 电机退出模式设置
                 settings.belt_stall_velocity_threshold,  // 堵转速度阈值
                 settings.belt_stall_torque_threshold,    // 堵转力矩阈值
-                settings.belt_stall_confirm_ticks,       // 堵转确认帧数
+                50,                                      // 堵转确认帧数
                 10000                                    // 超时时间 ms
                 ));
     }

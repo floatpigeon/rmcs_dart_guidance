@@ -55,7 +55,7 @@ public:
                 input.belt_right_torque,                 // 右电机力矩反馈
                 rmcs_msgs::DartMechanismCommand::UP,     // 同步带命令设置
                 settings.belt_down_setting_velocity,     // 同步带目标速度设置
-                rmcs_msgs::ExitMode::WAIT_HOLD_TORQUE,   // 电机退出模式设置
+                rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY, // 电机退出模式设置
                 settings.belt_stall_velocity_threshold,  // 堵转速度阈值
                 settings.belt_stall_torque_threshold,    // 堵转力矩阈值
                 settings.belt_stall_confirm_ticks,       // 堵转确认帧数

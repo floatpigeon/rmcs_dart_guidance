@@ -88,6 +88,7 @@ struct ManagerSettings {
     // belt
     double belt_down_setting_velocity;
     double belt_up_setting_velocity;
+    double belt_up_travel_angle;
     double belt_stall_velocity_threshold;
     double belt_stall_torque_threshold;
     uint64_t belt_stall_confirm_ticks;
