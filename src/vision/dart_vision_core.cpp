@@ -242,8 +242,13 @@ private:
         *tracking_ = tracking;
         ++target_seq_counter_;
         *target_seq_ = target_seq_counter_;
-        RCLCPP_INFO(logger_, "[target position]: (%d,%d)", target_position.x, target_position.y);
+        if (count++ == 10) {
+            RCLCPP_INFO(
+                logger_, "[target position]: (%d,%d)", target_position.x, target_position.y);
+            count = 0;
+        }
     }
+    int count = 0;
 
     void image_to_binary(const cv::Mat& src, cv::Mat& output) {
         cv::Mat HSV_image;

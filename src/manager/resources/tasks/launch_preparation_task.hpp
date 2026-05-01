@@ -3,6 +3,7 @@
 #include "manager/core/runtime/task.hpp"
 #include "manager/manager_types.hpp"
 #include "manager/resources/actions/belt_control_action.hpp"
+#include "manager/resources/actions/delay_action.hpp"
 #include "manager/resources/actions/filling_lift_action.hpp"
 #include "manager/resources/actions/force_control_action.hpp"
 #include "manager/resources/actions/trigger_control_action.hpp"

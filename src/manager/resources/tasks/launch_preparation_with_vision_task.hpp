@@ -20,8 +20,8 @@ public:
         auto action_set = std::make_shared<ActionSet>(
             "launch_prepare_with_vision_set", ActionSet::Policy::ALL_SUCCESS);
 
-        // action_set->also(
-        //     std::make_shared<LaunchPreparationTask>(input, output, settings, runtime_state));
+        action_set->also(
+            std::make_shared<LaunchPreparationTask>(input, output, settings, runtime_state));
         action_set->also(
             std::make_shared<VisionAimAction>(
                 "vision_aim", input.current_target, input.tracking, input.target_seq,
