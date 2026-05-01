@@ -242,6 +242,7 @@ private:
         *tracking_ = tracking;
         ++target_seq_counter_;
         *target_seq_ = target_seq_counter_;
+        RCLCPP_INFO(logger_, "[target position]: (%d,%d)", target_position.x, target_position.y);
     }
 
     void image_to_binary(const cv::Mat& src, cv::Mat& output) {

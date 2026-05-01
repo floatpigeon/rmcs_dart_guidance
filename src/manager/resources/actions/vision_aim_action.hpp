@@ -64,10 +64,9 @@ public:
         const cv::Point2i error = desired_point - current_target_;
 
         angle_error_vector_ =
-            Eigen::Vector2d(static_cast<double>(error.x), static_cast<double>(error.y));
+            Eigen::Vector2d(-static_cast<double>(error.x), static_cast<double>(error.y));
 
-        if (observed_target_refresh_
-            && std::abs(error.x) <= active_profile_->allowable_error.x
+        if (observed_target_refresh_ && std::abs(error.x) <= active_profile_->allowable_error.x
             && std::abs(error.y) <= active_profile_->allowable_error.y) {
             return ActionStatus::SUCCESS;
         }
