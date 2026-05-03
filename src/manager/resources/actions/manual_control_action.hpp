@@ -26,12 +26,16 @@ public:
         rmcs_msgs::DartMechanismCommand& belt_command,      //
         double& belt_target_velocity,                       //
         rmcs_msgs::ExitMode& belt_exit_mode,                //
+        rmcs_msgs::DartMechanismCommand& lift_command,      //
+        double& lift_target_velocity,                       //
+        rmcs_msgs::ExitMode& lift_exit_mode,                //
         rmcs_msgs::DartServoCommand& trigger_command,       //
         int32_t& force_error,                               //
         Eigen::Vector2d& angle_error_vector,                //
         double angle_max_error,                             //
         int32_t force_max_error,                            //
-        double belt_max_velocity                            //
+        double belt_max_velocity,                           //
+        double lift_target_velocity_setting                 //
         )
         : IAction(std::move(name))
         , remote_left_switch_(remote_left_switch)
@@ -42,18 +46,21 @@ public:
         , belt_command_output_interface_(belt_command)
         , belt_target_velocity_output_interface_(belt_target_velocity)
         , belt_exit_mode_output_interface_(belt_exit_mode)
+        , lift_command_output_interface_(lift_command)
+        , lift_target_velocity_output_interface_(lift_target_velocity)
+        , lift_exit_mode_output_interface_(lift_exit_mode)
         , trigger_command_output_interface_(trigger_command)
         , force_error_interface_(force_error)
         , angle_error_vector_output_interface_(angle_error_vector)
         , angle_max_error_(angle_max_error)
         , force_max_error_(force_max_error)
-        , belt_max_velocity_(belt_max_velocity) {}
+        , belt_max_velocity_(belt_max_velocity)
+        , lift_target_velocity_setting_(lift_target_velocity_setting) {}
 
     void on_enter() override {
-        belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
-        belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        belt_target_velocity_output_interface_ = 0.0;
-        apply_trigger_command();
+        reset_belt_output();
+        reset_lift_output();
+        trigger_command_output_interface_ = rmcs_msgs::DartServoCommand::WAIT;
         force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
     }
@@ -63,9 +70,9 @@ public:
             return ActionStatus::SUCCESS;
         }
 
-        belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
-        belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        belt_target_velocity_output_interface_ = 0.0;
+        reset_belt_output();
+        reset_lift_output();
+        trigger_command_output_interface_ = rmcs_msgs::DartServoCommand::WAIT;
         force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
 
@@ -74,6 +81,7 @@ public:
                 remote_left_joystic_.y() * angle_max_error_,
                 remote_right_joystic_.x() * angle_max_error_);
             angle_error_vector_output_interface_ = angle_error_vector;
+            apply_lift_command();
 
         } else if (remote_right_switch_ == rmcs_msgs::Switch::MIDDLE) {
             apply_trigger_command();
@@ -95,14 +103,25 @@ public:
     }
 
     void on_exit() override {
-        belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
-        belt_target_velocity_output_interface_ = 0.0;
-        belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
+        reset_belt_output();
+        reset_lift_output();
         force_error_interface_ = 0;
         angle_error_vector_output_interface_ = Eigen::Vector2d::Zero();
     }
 
 private:
+    void reset_belt_output() {
+        belt_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        belt_target_velocity_output_interface_ = 0.0;
+        belt_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
+    }
+
+    void reset_lift_output() {
+        lift_command_output_interface_ = rmcs_msgs::DartMechanismCommand::WAIT;
+        lift_target_velocity_output_interface_ = 0.0;
+        lift_exit_mode_output_interface_ = rmcs_msgs::ExitMode::WAIT_ZERO_VELOCITY;
+    }
+
     void apply_trigger_command() {
         switch (remote_rotary_knob_switch_) {
         case rmcs_msgs::Switch::UP:
@@ -110,6 +129,21 @@ private:
             break;
         case rmcs_msgs::Switch::DOWN:
             trigger_command_output_interface_ = rmcs_msgs::DartServoCommand::FREE;
+            break;
+        case rmcs_msgs::Switch::MIDDLE:
+        case rmcs_msgs::Switch::UNKNOWN: break;
+        }
+    }
+
+    void apply_lift_command() {
+        switch (remote_rotary_knob_switch_) {
+        case rmcs_msgs::Switch::UP:
+            lift_command_output_interface_ = rmcs_msgs::DartMechanismCommand::UP;
+            lift_target_velocity_output_interface_ = lift_target_velocity_setting_;
+            break;
+        case rmcs_msgs::Switch::DOWN:
+            lift_command_output_interface_ = rmcs_msgs::DartMechanismCommand::DOWN;
+            lift_target_velocity_output_interface_ = lift_target_velocity_setting_;
             break;
         case rmcs_msgs::Switch::MIDDLE:
         case rmcs_msgs::Switch::UNKNOWN: break;
@@ -135,6 +169,9 @@ private:
     rmcs_msgs::DartMechanismCommand& belt_command_output_interface_;
     double& belt_target_velocity_output_interface_;
     rmcs_msgs::ExitMode& belt_exit_mode_output_interface_;
+    rmcs_msgs::DartMechanismCommand& lift_command_output_interface_;
+    double& lift_target_velocity_output_interface_;
+    rmcs_msgs::ExitMode& lift_exit_mode_output_interface_;
     rmcs_msgs::DartServoCommand& trigger_command_output_interface_;
     int32_t& force_error_interface_;
     Eigen::Vector2d& angle_error_vector_output_interface_;
@@ -142,5 +179,6 @@ private:
     double angle_max_error_;
     int32_t force_max_error_;
     double belt_max_velocity_;
+    double lift_target_velocity_setting_;
 };
 } // namespace rmcs_dart_guidance::manager
