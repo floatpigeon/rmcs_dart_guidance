@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <eigen3/Eigen/Dense>
+#include <opencv2/core/types.hpp>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/node.hpp>
@@ -88,6 +89,11 @@ public:
         force_allowable_error_ =
             static_cast<int32_t>(get_parameter("force_allowable_error").as_int());
 
+        // vision
+        register_input("/dart_guidance/camera/target_position", current_target_input_, false);
+        register_input("/dart_guidance/tracker/tracking", tracking_input_, false);
+        register_input("/dart_guidance/camera/target_seq", target_seq_input_, false);
+
         // manual control
         register_input("/remote/switch/left", remote_left_switch_, false);
         register_input("/remote/switch/right", remote_right_switch_, false);
@@ -98,6 +104,15 @@ public:
         manual_angle_max_error_ = get_parameter("angle_manual_scale").as_double();
         manual_force_max_error_ =
             static_cast<int32_t>(std::lround(get_parameter("force_manual_scale").as_double()));
+
+        vision_aim_profile_provider_.load_from(*this);
+        if (!vision_aim_profile_provider_.valid()) {
+            RCLCPP_WARN(
+                logger_,
+                "[DartManager] vision aim profiles unavailable: %s. "
+                "launch_prepare_with_vision will fail with configuration/input errors until fixed.",
+                vision_aim_profile_provider_.error_message().c_str());
+        }
 
         // command/debug io
         register_input("/dart/manager/command", command_input_, false);
@@ -127,6 +142,7 @@ public:
     void before_updating() override {
         bind_optional_command_inputs();
         bind_optional_manual_inputs();
+        bind_optional_vision_inputs();
 
         auto input = input_context();
         auto output = output_context();
@@ -210,6 +226,27 @@ private:
         }
     }
 
+    void bind_optional_vision_inputs() {
+        if (!current_target_input_.ready()) {
+            current_target_input_.make_and_bind_directly(cv::Point2i(-1, -1));
+            RCLCPP_WARN(
+                logger_,
+                "Failed to fetch \"/dart_guidance/camera/target_position\". Set to (-1, -1).");
+        }
+
+        if (!tracking_input_.ready()) {
+            tracking_input_.make_and_bind_directly(false);
+            RCLCPP_WARN(
+                logger_, "Failed to fetch \"/dart_guidance/tracker/tracking\". Set to false.");
+        }
+
+        if (!target_seq_input_.ready()) {
+            target_seq_input_.make_and_bind_directly(uint64_t{0});
+            RCLCPP_WARN(
+                logger_, "Failed to fetch \"/dart_guidance/camera/target_seq\". Set to zero.");
+        }
+    }
+
     void poll_commands() {
         const std::string cmd = command_input_.ready() ? *command_input_ : std::string{};
         if (!cmd.empty()) {
@@ -236,7 +273,8 @@ private:
         auto input = input_context();
         auto output = output_context();
         auto manager_settings = settings();
-        auto task = make_task(cmd, input, output, manager_settings, runtime_state_);
+        auto task =
+            make_task(cmd, input, output, manager_settings, vision_aim_profile_provider_, runtime_state_);
 
         RCLCPP_INFO(logger_, "[DartManager] received command: '%s'", cmd.c_str());
         if (task) {
@@ -456,6 +494,9 @@ private:
             *lift_right_torque_,            //
             *force_sensor_ch1_,             //
             *force_sensor_ch2_,             //
+            *current_target_input_,         //
+            *tracking_input_,               //
+            *target_seq_input_,             //
             *remote_left_switch_,           //
             *remote_right_switch_,          //
             *remote_rotary_knob_switch_,    //
@@ -550,6 +591,10 @@ private:
     InputInterface<int32_t> force_sensor_ch1_;
     InputInterface<int32_t> force_sensor_ch2_;
 
+    InputInterface<cv::Point2i> current_target_input_;
+    InputInterface<bool> tracking_input_;
+    InputInterface<uint64_t> target_seq_input_;
+
     int32_t force_setpoint_;
     int32_t force_allowable_error_;
 
@@ -576,6 +621,7 @@ private:
     OutputInterface<std::optional<ManagerLastErrorInfo>> debug_last_error_output_;
 
     std::optional<ManagerLastErrorInfo> last_error_;
+    VisionAimProfileProvider vision_aim_profile_provider_;
 
     ManagerRuntimeState runtime_state_{};
     TaskState task_state_{};

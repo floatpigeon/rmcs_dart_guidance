@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <eigen3/Eigen/Dense>
+#include <opencv2/core/types.hpp>
 
 #include "Eigen/src/Core/Matrix.h"
 #include "manager/core/runtime/action.hpp"
@@ -53,6 +54,11 @@ struct ManagerInputContext {
     // yaw pitch force
     const int32_t& force_sensor_ch1;
     const int32_t& force_sensor_ch2;
+
+    // vision
+    const cv::Point2i& current_target;
+    const bool& tracking;
+    const uint64_t& target_seq;
 
     // remote control
     const rmcs_msgs::Switch& remote_left_switch;

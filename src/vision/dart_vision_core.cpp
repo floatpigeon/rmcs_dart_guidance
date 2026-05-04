@@ -73,7 +73,8 @@ public:
         register_output("/dart_guidance/camera/camera_image", camera_image_);
         register_output("/dart_guidance/camera/display_image", display_image_);
         register_output("/dart_guidance/camera/target_position", target_position_, PointT(-1, -1));
-        register_output("/dart_guidance/tracker/tracking", tracking_);
+        register_output("/dart_guidance/tracker/tracking", tracking_, false);
+        register_output("/dart_guidance/camera/target_seq", target_seq_, uint64_t{0});
         if (enable_image_saving_) {
             RCLCPP_INFO(logger_, "Image saving enabled:");
             RCLCPP_INFO(logger_, "  Directory: %s", save_directory_.c_str());
@@ -185,6 +186,9 @@ private:
     }
 
     void process_frame(cv::Mat& preprocessed_image, cv::Mat& display_image) {
+        PointT published_target(-1, -1);
+        bool published_tracking = false;
+
         if (!is_tracker_stage_) {
             identifier_.update(preprocessed_image);
 
@@ -192,10 +196,7 @@ private:
                 display_image, "Identifying", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1,
                 cv::Scalar(255, 0, 255), 2);
 
-            if (!identifier_.result_status_()) {
-                *target_position_ = PointT(-1, -1);
-                *tracking_ = false;
-            } else {
+            if (identifier_.result_status_()) {
                 cv::Point2i initial_position = identifier_.get_result();
                 RCLCPP_INFO(
                     logger_, "Target initial position:(%d,%d)", initial_position.x,
@@ -204,8 +205,8 @@ private:
                 is_tracker_stage_ = true;
                 tracker_.Init(initial_position);
 
-                *target_position_ = initial_position;
-                *tracking_ = true;
+                published_target = initial_position;
+                published_tracking = true;
             }
         } else {
             tracker_.update(preprocessed_image);
@@ -218,8 +219,6 @@ private:
 
             if (!is_tracking) {
                 tracker_loss_count_++;
-                *target_position_ = PointT(-1, -1);
-                *tracking_ = false;
 
                 if (tracker_loss_count_ > 100) {
                     is_tracker_stage_ = false;
@@ -229,12 +228,27 @@ private:
                 }
             } else {
                 tracker_loss_count_ = 0;
-                *target_position_ = current_position;
-                *tracking_ = true;
+                published_target = current_position;
+                published_tracking = true;
                 cv::circle(display_image, current_position, 20, cv::Scalar(255, 0, 255), 2);
             }
         }
+
+        publish_target_result(published_target, published_tracking);
     }
+
+    void publish_target_result(const PointT& target_position, bool tracking) {
+        *target_position_ = target_position;
+        *tracking_ = tracking;
+        ++target_seq_counter_;
+        *target_seq_ = target_seq_counter_;
+        if (count++ == 10) {
+            RCLCPP_INFO(
+                logger_, "[target position]: (%d,%d)", target_position.x, target_position.y);
+            count = 0;
+        }
+    }
+    int count = 0;
 
     void image_to_binary(const cv::Mat& src, cv::Mat& output) {
         cv::Mat HSV_image;
@@ -273,11 +287,13 @@ private:
     OutputInterface<cv::Mat> display_image_;
     OutputInterface<bool> tracking_;
     OutputInterface<cv::Point2i> target_position_;
+    OutputInterface<uint64_t> target_seq_;
 
     DartGuidanceIdentifier identifier_;
     DartGuidanceTracker tracker_;
     bool is_tracker_stage_ = false;
     int tracker_loss_count_ = 0;
+    uint64_t target_seq_counter_{0};
 };
 } // namespace rmcs_dart_guidance
 

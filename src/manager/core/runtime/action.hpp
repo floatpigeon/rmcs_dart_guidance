@@ -19,6 +19,9 @@ enum class ActionFailureReason : uint8_t {
     NONE,
     TIMEOUT,
     STALL,
+    INVALID_INPUT,
+    STALE_INPUT,
+    CONFIGURATION_ERROR,
     EXTERNAL_CANCEL,
     DEPENDENCY_FAILURE,
 };
@@ -34,6 +37,9 @@ inline const char* to_string(ActionFailureReason reason) {
     case ActionFailureReason::NONE: return "none";
     case ActionFailureReason::TIMEOUT: return "timeout";
     case ActionFailureReason::STALL: return "stall";
+    case ActionFailureReason::INVALID_INPUT: return "invalid_input";
+    case ActionFailureReason::STALE_INPUT: return "stale_input";
+    case ActionFailureReason::CONFIGURATION_ERROR: return "configuration_error";
     case ActionFailureReason::EXTERNAL_CANCEL: return "external_cancel";
     case ActionFailureReason::DEPENDENCY_FAILURE: return "dependency_failure";
     }

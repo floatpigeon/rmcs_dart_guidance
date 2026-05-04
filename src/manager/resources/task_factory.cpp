@@ -4,6 +4,7 @@
 #include "manager/resources/tasks/fire_and_preload_task.hpp"
 #include "manager/resources/tasks/filling_lift_task.hpp"
 #include "manager/resources/tasks/launch_preparation_task.hpp"
+#include "manager/resources/tasks/launch_preparation_with_vision_task.hpp"
 #include "manager/resources/tasks/manual_control_task.hpp"
 #include "manager/resources/tasks/slider_init_task.hpp"
 #include "manager/resources/tasks/trigger_control_task.hpp"
@@ -18,9 +19,15 @@ std::shared_ptr<Task> make_slider_init_task(
 
 std::shared_ptr<Task> make_task(
     const std::string& cmd, const ManagerInputContext& input, ManagerOutputContext& output,
-    const ManagerSettings& settings, const ManagerRuntimeState& runtime_state) {
+    const ManagerSettings& settings, const VisionAimProfileProvider& profile_provider,
+    const ManagerRuntimeState& runtime_state) {
     if (cmd == "launch_prepare" || cmd == "launch-prepare") {
         return std::make_shared<LaunchPreparationTask>(input, output, settings, runtime_state);
+    }
+
+    if (cmd == "launch_prepare_with_vision" || cmd == "launch-prepare-with-vision") {
+        return std::make_shared<LaunchPreparationWithVisionTask>(
+            input, output, settings, profile_provider, runtime_state);
     }
 
     if (cmd == "launch_cancel" || cmd == "cancel_launch" || cmd == "unload") {

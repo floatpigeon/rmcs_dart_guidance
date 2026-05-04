@@ -34,7 +34,7 @@ public:
 
         register_output("/dart/manager/command", command_output_, std::string{});
 
-        RCLCPP_INFO(logger_, "[RemoteCommandBridge] initialized");
+        vision_enable_ = get_parameter("vision_enable").as_bool();
     }
 
     void before_updating() override {
@@ -59,7 +59,6 @@ public:
         if (left == Switch::DOWN && right == Switch::DOWN) {
             emit_command("cancel");
             chambered_ = false;
-            // RCLCPP_INFO(logger_, "[RemoteCommandBridge] cancel");
             update_previous_switches(left, right);
             return;
         }
@@ -86,9 +85,12 @@ public:
                     chambered_ = false;
                     RCLCPP_INFO(logger_, "[RemoteCommandBridge] prepare toggle -> launch_cancel");
                 } else {
-                    emit_command("launch_prepare");
+                    auto fire_task_name =
+                        vision_enable_ ? "launch_prepare_with_vision" : "launch_prepare";
+                    emit_command(fire_task_name);
                     chambered_ = true;
-                    RCLCPP_INFO(logger_, "[RemoteCommandBridge] prepare toggle -> launch_prepare");
+                    RCLCPP_INFO(
+                        logger_, "[RemoteCommandBridge] prepare toggle -> %s", fire_task_name);
                 }
                 update_previous_switches(left, right);
                 return;
@@ -139,6 +141,8 @@ private:
     InputInterface<rmcs_msgs::Switch> switch_left_;
     InputInterface<rmcs_msgs::Switch> switch_right_;
     OutputInterface<std::string> command_output_;
+
+    bool vision_enable_;
 
     rmcs_msgs::Switch prev_left_{rmcs_msgs::Switch::UNKNOWN};
     rmcs_msgs::Switch prev_right_{rmcs_msgs::Switch::UNKNOWN};

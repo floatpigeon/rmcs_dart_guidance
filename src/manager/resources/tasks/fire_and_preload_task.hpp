@@ -2,6 +2,7 @@
 
 #include "manager/core/runtime/task.hpp"
 #include "manager/manager_types.hpp"
+#include "manager/resources/actions/delay_action.hpp"
 #include "manager/resources/actions/filling_lift_action.hpp"
 #include "manager/resources/actions/filling_limit_servo_action.hpp"
 #include "manager/resources/actions/trigger_control_action.hpp"
@@ -20,7 +21,7 @@ public:
         const ManagerInputContext& input, ManagerOutputContext& output,
         const ManagerSettings& settings, const ManagerRuntimeState& runtime_state)
         : Task("fire_preload", "发射并预装填") {
-
+        then(std::make_shared<DelayAction>("fire_delay", 500));
         then(
             std::make_shared<TriggerControlAction>(
                 "trigger_free",                              // 动作名称
