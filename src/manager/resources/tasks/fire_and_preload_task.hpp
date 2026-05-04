@@ -21,13 +21,13 @@ public:
         const ManagerInputContext& input, ManagerOutputContext& output,
         const ManagerSettings& settings, const ManagerRuntimeState& runtime_state)
         : Task("fire_preload", "发射并预装填") {
-        then(std::make_shared<DelayAction>("fire_delay", 500));
+        then(std::make_shared<DelayAction>("fire_delay", 1000));
         then(
             std::make_shared<TriggerControlAction>(
                 "trigger_free",                              // 动作名称
                 output.trigger_command,                      //
                 rmcs_msgs::DartServoCommand::FREE,           //
-                1000                                         //
+                2000                                         //
                 ));
 
         if (runtime_state.fire_count > 0) {

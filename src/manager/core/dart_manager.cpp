@@ -44,6 +44,7 @@ public:
         register_input("/dart/drive_belt/right/torque", belt_right_torque_);
 
         belt_down_velocity_ = get_parameter("belt_down_velocity").as_double();
+        belt_down_travel_angle_ = get_parameter("belt_down_travel_angle").as_double();
         belt_up_velocity_ = get_parameter("belt_up_velocity").as_double();
         belt_up_travel_angle_ = get_parameter("belt_up_travel_angle").as_double();
         manual_belt_velocity_ = get_parameter("manual_max_velocity").as_double();
@@ -273,8 +274,8 @@ private:
         auto input = input_context();
         auto output = output_context();
         auto manager_settings = settings();
-        auto task =
-            make_task(cmd, input, output, manager_settings, vision_aim_profile_provider_, runtime_state_);
+        auto task = make_task(
+            cmd, input, output, manager_settings, vision_aim_profile_provider_, runtime_state_);
 
         RCLCPP_INFO(logger_, "[DartManager] received command: '%s'", cmd.c_str());
         if (task) {
@@ -337,7 +338,6 @@ private:
         if (runtime_state_.lifecycle_state != ManagerLifecycleState::RUNNING) {
             transition_to(ManagerLifecycleState::RUNNING);
         }
-
     }
 
     ActionStatus tick_current_task() {
@@ -523,6 +523,7 @@ private:
     ManagerSettings settings() const {
         return ManagerSettings{
             belt_down_velocity_,            //
+            belt_down_travel_angle_,        //
             belt_up_velocity_,              //
             belt_up_travel_angle_,          //
             belt_stall_velocity_threshold_, //
@@ -555,6 +556,7 @@ private:
     InputInterface<double> belt_right_torque_;
 
     double belt_down_velocity_;
+    double belt_down_travel_angle_;
     double belt_up_velocity_;
     double belt_up_travel_angle_;
     double belt_stall_velocity_threshold_;

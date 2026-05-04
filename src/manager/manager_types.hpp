@@ -93,6 +93,7 @@ struct ManagerOutputContext {
 struct ManagerSettings {
     // belt
     double belt_down_setting_velocity;
+    double belt_down_travel_angle;
     double belt_up_setting_velocity;
     double belt_up_travel_angle;
     double belt_stall_velocity_threshold;
